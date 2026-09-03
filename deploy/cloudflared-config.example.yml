@@ -1,0 +1,24 @@
+# Example ~/.cloudflared/config.yml for a named Cloudflare Tunnel in front of
+# the boozie-archive backend.
+#
+#   cloudflared tunnel login
+#   cloudflared tunnel create boozie-archive
+#   cloudflared tunnel route dns boozie-archive music-api.example.com
+#   cp deploy/cloudflared-config.example.yml ~/.cloudflared/config.yml
+#   # fill in the tunnel UUID below, then:
+#   sudo cloudflared service install
+#   sudo systemctl enable --now cloudflared
+
+tunnel: boozie-archive
+credentials-file: /home/admin/.cloudflared/REPLACE-WITH-TUNNEL-UUID.json
+
+ingress:
+  - hostname: music-api.example.com
+    service: http://localhost:1981
+    originRequest:
+      # Audio streams are long-lived; don't cut them off mid-track.
+      connectTimeout: 30s
+      keepAliveTimeout: 90s
+      noHappyEyeballs: false
+  # Everything else is refused.
+  - service: http_status:404

@@ -1,0 +1,153 @@
+import 'dotenv/config';
+import path from 'node:path';
+import os from 'node:os';
+
+function str(name: string, fallback: string): string {
+  const v = process.env[name];
+  return v === undefined || v === '' ? fallback : v;
+}
+
+function int(name: string, fallback: number): number {
+  const v = process.env[name];
+  if (v === undefined || v === '') return fallback;
+  const n = Number.parseInt(v, 10);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function bool(name: string, fallback: boolean): boolean {
+  const v = process.env[name];
+  if (v === undefined || v === '') return fallback;
+  return ['1', 'true', 'yes', 'on'].includes(v.toLowerCase());
+}
+
+function list(name: string, fallback: string[]): string[] {
+  const v = process.env[name];
+  if (v === undefined || v === '') return fallback;
+  return v
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+const dataDir = path.resolve(str('DATA_DIR', path.join(process.cwd(), 'data')));
+
+export const config = {
+  /** Absolute path to the root of the music collection. */
+  musicRoot: path.resolve(str('MUSIC_ROOT', '/home/admin/ssd/mediausb/music/')),
+
+  host: str('HOST', '0.0.0.0'),
+  port: int('PORT', 1981),
+
+  /** Where the JSON index and the cover cache live. */
+  dataDir,
+  indexFile: path.join(dataDir, 'library-index.json'),
+  coverCacheDir: path.join(dataDir, 'covers'),
+
+  /**
+   * Allowed browser origins. "*" allows any origin, which is what you want
+   * for a public, read-only archive served from a static host.
+   */
+  corsOrigins: list('CORS_ORIGINS', ['*']),
+
+  /** Scan the library once at boot. Disable for very large libraries + cron. */
+  scanOnStart: bool('SCAN_ON_START', true),
+  /** Periodic rescan interval in minutes. 0 disables the timer. */
+  scanIntervalMinutes: int('SCAN_INTERVAL_MINUTES', 360),
+  /** Number of files parsed in parallel. Keep modest on a Pi's SD/SSD. */
+  scanConcurrency: int('SCAN_CONCURRENCY', Math.max(2, Math.min(8, os.cpus().length))),
+
+  /** Bearer token required by POST /api/rescan. Empty string disables the route. */
+  adminToken: str('ADMIN_TOKEN', ''),
+
+  /** Generated cover thumbnail sizes (px). Requests are snapped to these. */
+  coverSizes: list('COVER_SIZES', ['128', '320', '640'])
+    .map((s) => Number.parseInt(s, 10))
+    .filter((n) => Number.isFinite(n) && n > 0)
+    .sort((a, b) => a - b),
+
+  /** Follow symlinks while walking the collection. */
+  followSymlinks: bool('FOLLOW_SYMLINKS', false),
+
+  logLevel: str('LOG_LEVEL', 'info'),
+} as const;
+
+/** Audio extensions we index. Everything here is supported by music-metadata. */
+export const AUDIO_EXTENSIONS = new Set([
+  'mp3',
+  'flac',
+  'm4a',
+  'm4b',
+  'mp4',
+  'aac',
+  'opus',
+  'ogg',
+  'oga',
+  'wav',
+  'wave',
+  'aiff',
+  'aif',
+  'aifc',
+  'wma',
+  'wv',
+  'ape',
+  'mpc',
+  'dsf',
+  'dff',
+  'alac',
+  'spx',
+]);
+
+/** Content types used for streaming and downloads. */
+export const MIME_TYPES: Record<string, string> = {
+  mp3: 'audio/mpeg',
+  flac: 'audio/flac',
+  m4a: 'audio/mp4',
+  m4b: 'audio/mp4',
+  mp4: 'audio/mp4',
+  alac: 'audio/mp4',
+  aac: 'audio/aac',
+  opus: 'audio/ogg',
+  ogg: 'audio/ogg',
+  oga: 'audio/ogg',
+  spx: 'audio/ogg',
+  wav: 'audio/wav',
+  wave: 'audio/wav',
+  aiff: 'audio/aiff',
+  aif: 'audio/aiff',
+  aifc: 'audio/aiff',
+  wma: 'audio/x-ms-wma',
+  wv: 'audio/x-wavpack',
+  ape: 'audio/x-monkeys-audio',
+  mpc: 'audio/x-musepack',
+  dsf: 'audio/x-dsf',
+  dff: 'audio/x-dff',
+};
+
+/** Formats that are lossless (used for the "HI-RES / LOSSLESS" badges). */
+export const LOSSLESS_EXTENSIONS = new Set([
+  'flac',
+  'wav',
+  'wave',
+  'aiff',
+  'aif',
+  'aifc',
+  'alac',
+  'wv',
+  'ape',
+  'dsf',
+  'dff',
+]);
+
+/** Image filenames treated as album art, in priority order. */
+export const COVER_FILENAMES = [
+  'cover',
+  'folder',
+  'front',
+  'albumart',
+  'album',
+  'artwork',
+  'thumb',
+  'scan',
+];
+
+export const COVER_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp'];

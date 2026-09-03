@@ -1,0 +1,42 @@
+# systemd unit for the boozie-archive backend.
+#
+#   sudo cp deploy/boozie-archive.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now boozie-archive
+#   journalctl -u boozie-archive -f
+#
+# Adjust User/Group, WorkingDirectory and ExecStart to match your Pi.
+
+[Unit]
+Description=Boozie Archive music API
+Documentation=https://github.com/booziedev/boozie-archive
+After=network-online.target
+Wants=network-online.target
+# Wait for the external drive holding the collection to be mounted.
+RequiresMountsFor=/home/admin/ssd/mediausb
+
+[Service]
+Type=simple
+User=admin
+Group=admin
+WorkingDirectory=/home/admin/boozie-archive/backend
+EnvironmentFile=/home/admin/boozie-archive/backend/.env
+ExecStart=/usr/bin/node /home/admin/boozie-archive/backend/dist/index.js
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=boozie-archive
+
+# Hardening — the service only ever needs to read the music and write its cache.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=false
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target
