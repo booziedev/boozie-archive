@@ -5,6 +5,7 @@ import { Disc3, ListPlus, Play, Shuffle } from 'lucide-react';
 import { AlbumCard } from '../components/AlbumCard';
 import { CoverImage } from '../components/CoverImage';
 import { FavoriteButton } from '../components/FavoriteButton';
+import { ShareButton } from '../components/ShareDialog';
 import { SectionHeader } from '../components/PageHeader';
 import { TrackRow } from '../components/TrackRow';
 import { CardGridSkeleton, EmptyState, ErrorState, TrackListSkeleton } from '../components/states';
@@ -103,6 +104,14 @@ export function ArtistPage() {
               </button>
             )}
             <FavoriteButton kind="artist" id={artist.id} label={artist.name} />
+            <ShareButton
+              attachment={{
+                kind: 'artist',
+                id: artist.id,
+                name: artist.name,
+                subtitle: `${artist.albumCount} albums`,
+              }}
+            />
           </div>
         </div>
       </header>

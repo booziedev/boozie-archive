@@ -74,9 +74,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const signOut = useCallback(async () => {
-    await auth.logout().catch(() => undefined);
+    // Deliberately not swallowed: if the server fails to end the session the
+    // cookie is still live, and pretending otherwise is how the Safari
+    // "logout does nothing" bug hid for so long.
+    try {
+      await auth.logout();
+    } catch (error) {
+      console.error('Sign out failed on the server', error);
+    }
     queryClient.setQueryData(['auth', 'me'], { user: null });
     queryClient.clear();
+
+    /**
+     * Reload rather than re-render.
+     *
+     * The server now sends `no-store` on API replies, which is the actual fix
+     * for Safari serving a cached /api/auth/me after signing out. A full reload
+     * on top of that guarantees no stale in-memory state survives either — and
+     * it drops the playback queue, which should not follow one account into the
+     * next person's session on a shared device.
+     */
+    try {
+      localStorage.removeItem('boozie.player.session.v1');
+    } catch {
+      // Storage disabled — nothing to clear.
+    }
+    window.location.replace('/');
   }, [queryClient]);
 
   const value = useMemo<AuthContextValue>(() => {

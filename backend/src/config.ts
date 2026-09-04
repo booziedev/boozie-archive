@@ -148,7 +148,75 @@ export const config = {
   /** Failed logins allowed per username+IP inside the window below. */
   loginMaxAttempts: int('LOGIN_MAX_ATTEMPTS', 10),
   loginWindowMinutes: int('LOGIN_WINDOW_MINUTES', 15),
+
+  /**
+   * Which proxies may set X-Forwarded-For.
+   *
+   * `true` would trust the header from ANY client, letting anyone forge their
+   * IP and slip past the login throttle. cloudflared and Tailscale Funnel both
+   * connect over the loopback interface, so trusting only that is correct and
+   * safe. Set TRUST_PROXY to a comma-separated list of CIDRs for other setups,
+   * or to `false` when nothing sits in front of the server.
+   */
+  trustProxy: (() => {
+    const value = str('TRUST_PROXY', 'loopback');
+    if (value === 'false') return false;
+    if (value === 'loopback') return '127.0.0.1, ::1';
+    return value;
+  })(),
+
+  // --- social features ----------------------------------------------------
+
+  /** Messages one account may send per minute. */
+  messageRatePerMinute: int('MESSAGE_RATE_PER_MINUTE', 30),
+  /** Maximum characters in a direct message. */
+  messageMaxLength: int('MESSAGE_MAX_LENGTH', 2000),
+  /** Friend requests one account may send per hour. */
+  friendRequestsPerHour: int('FRIEND_REQUESTS_PER_HOUR', 30),
+
+  /**
+   * GIF / emoji search keys. Searches are proxied through this server so the
+   * keys never reach the browser and the provider never sees a visitor's IP.
+   * Without a key the picker simply reports that search is unavailable.
+   */
+  giphyApiKey: str('GIPHY_API_KEY', ''),
+  tenorApiKey: str('TENOR_API_KEY', ''),
+  /** emoji.gg needs no key; set to false to hide that tab. */
+  emojiGgEnabled: bool('EMOJI_GG_ENABLED', true),
 } as const;
+
+/**
+ * Hosts that may be referenced by a message attachment or an avatar.
+ *
+ * Rendering a remote image leaks the viewer's IP to whoever serves it, so the
+ * set is limited to the providers the picker actually searches. Anything else
+ * is rejected at write time, which also stops someone pointing an avatar at an
+ * internal address to probe the network from other people's browsers.
+ */
+export const ALLOWED_MEDIA_HOSTS = new Set([
+  'media.giphy.com',
+  'media0.giphy.com',
+  'media1.giphy.com',
+  'media2.giphy.com',
+  'media3.giphy.com',
+  'media4.giphy.com',
+  'i.giphy.com',
+  'media.tenor.com',
+  'c.tenor.com',
+  'emoji.gg',
+  'cdn.emoji.gg',
+  'cdn3.emoji.gg',
+]);
+
+/** True when a URL is an https link to one of the allowed media hosts. */
+export function isAllowedMediaUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && ALLOWED_MEDIA_HOSTS.has(url.hostname);
+  } catch {
+    return false;
+  }
+}
 
 /** Audio extensions we index. Everything here is supported by music-metadata. */
 export const AUDIO_EXTENSIONS = new Set([

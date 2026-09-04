@@ -13,6 +13,9 @@ Netlify, and reaches the Pi over a free HTTPS tunnel.
 - **Favourites** stored on the device, **filters** by genre, year, format
 - **Invite-only accounts** backed by PostgreSQL, with a Discord-style admin panel
   for issuing, expiring and disabling invite codes
+- **Friends and private messages**, with GIF/emoji support and one-tap sharing of
+  any album, artist or track into a conversation
+- **Profiles** with animated GIF avatars, a display name, bio and accent colour
 - Installable from **Safari on iOS** as a full-screen app with lock-screen controls
 
 ---
@@ -26,12 +29,13 @@ Netlify, and reaches the Pi over a free HTTPS tunnel.
 5. [Exposing it publicly for free](#exposing-it-publicly-for-free)
 6. [Serving the frontend](#serving-the-frontend)
 7. [Accounts and invites](#accounts-and-invites)
-8. [Installing on iOS](#installing-on-ios)
-9. [How metadata scanning works](#how-metadata-scanning-works)
-10. [Environment variables](#environment-variables)
-11. [API reference](#api-reference)
-12. [Project structure](#project-structure)
-13. [Troubleshooting](#troubleshooting) — start with `npm run doctor`
+8. [Friends, messages and profiles](#friends-messages-and-profiles)
+9. [Installing on iOS](#installing-on-ios)
+10. [How metadata scanning works](#how-metadata-scanning-works)
+11. [Environment variables](#environment-variables)
+12. [API reference](#api-reference)
+13. [Project structure](#project-structure)
+14. [Troubleshooting](#troubleshooting) — start with `npm run doctor`
 
 ---
 
@@ -505,6 +509,46 @@ someone signs them out everywhere immediately.
 | Anyone can browse, but joining still needs an invite | `ALLOW_PUBLIC_BROWSE=true` |
 | Frontend hosted on another origin | `COOKIE_SAMESITE=none`, `COOKIE_SECURE=true`, and list the exact origin in `CORS_ORIGINS` (`*` cannot be used with cookies) |
 
+## Friends, messages and profiles
+
+Once people have accounts they can find each other, talk, and pass music around
+without anything leaving the Pi.
+
+**Friends.** Search the member directory by username, send a request, accept or
+decline from the Friends page. Requests and unread messages show as badges in
+the sidebar (and as dots in the mobile header), polled every 20 seconds.
+
+**Direct messages.** One conversation per pair of people, with unread counts and
+a two-pane layout that collapses to a single column on a phone. New messages
+arrive by polling every four seconds while a thread is open — deliberately not a
+websocket, because iOS drops those every time the app is backgrounded.
+
+**Sharing.** Every album, artist and track has a **Share** button. Pick a friend,
+optionally add a note, and it arrives as a rich card in the conversation that
+links straight back into the archive. Nothing is made public — a share is just a
+message between two people.
+
+**GIFs and emoji.** The composer has a picker with Giphy, Tenor and emoji.gg
+tabs. Searches are proxied through the Pi, so the API keys never reach the
+browser and the providers never see your members' IP addresses. Add keys to
+`backend/.env`:
+
+```ini
+GIPHY_API_KEY=your-key      # https://developers.giphy.com/dashboard/ (free)
+TENOR_API_KEY=your-key      # optional
+EMOJI_GG_ENABLED=true       # no key needed
+```
+
+Without a key that tab is simply hidden; the rest of messaging works regardless.
+
+**Profiles.** Everyone gets a page at `/u/<username>` with a display name, bio,
+accent colour and an avatar — **animated GIFs included**, picked from the same
+picker. Avatars are restricted to the picker's providers so nobody can point one
+at an arbitrary host and log every viewer's IP. Edit yours at `/profile`.
+
+Messaging is friends-only, and losing a friendship closes the conversation both
+ways. See [SECURITY.md](SECURITY.md) for the full model.
+
 ## Installing on iOS
 
 1. Open the site in **Safari** (Chrome on iOS cannot install web apps).
@@ -597,6 +641,13 @@ tags are always preferred.
 | `LOGIN_MAX_ATTEMPTS` | `10` | Failed sign-ins per username+IP before lockout. |
 | `LOGIN_WINDOW_MINUTES` | `15` | Length of that lockout window. |
 | `ALLOW_PUBLIC_BROWSE` | `false` | Let signed-out visitors browse (joining still needs an invite). |
+| `TRUST_PROXY` | `loopback` | Which proxies may set `X-Forwarded-For`. `loopback`, `false`, or a CIDR list. |
+| `MESSAGE_RATE_PER_MINUTE` | `30` | Messages one account may send per minute. |
+| `MESSAGE_MAX_LENGTH` | `2000` | Maximum characters in a message. |
+| `FRIEND_REQUESTS_PER_HOUR` | `30` | Friend requests one account may send per hour. |
+| `GIPHY_API_KEY` | *(empty)* | Enables the Giphy tab in the picker. |
+| `TENOR_API_KEY` | *(empty)* | Enables the Tenor tab. |
+| `EMOJI_GG_ENABLED` | `true` | Enables the emoji.gg tab (no key needed). |
 | `SERVE_FRONTEND` | `true` | Also serve `frontend/dist` at `/` when it exists. |
 | `FRONTEND_DIST` | `../frontend/dist` | Where the built web app lives (relative to the working directory). |
 | `LOG_LEVEL` | `info` | `fatal`…`trace`. |
@@ -631,6 +682,17 @@ session cookie when `AUTH_ENABLED=true`.
 | `POST /api/auth/password` | Change your password; signs out other devices. |
 | `/api/admin/invites` | **Admin.** List codes. `POST` creates one, `PATCH :id` enables/disables, `DELETE :id` removes. |
 | `/api/admin/users` | **Admin.** List accounts. `PATCH :id` sets role/disabled, `DELETE :id` removes. |
+| `/api/profile/me` | Your profile. `PATCH` updates name, bio, avatar and accent. |
+| `/api/profile/:username` | Someone else's profile, plus your relationship to them. |
+| `/api/users/search?q=` | Member directory search. |
+| `/api/friends` | Friends plus incoming and outgoing requests. |
+| `POST /api/friends/requests` | Send a request. `POST /api/friends/requests/:id/accept` accepts. |
+| `DELETE /api/friends/:userId` | Decline, cancel or unfriend. `/block` blocks and unblocks. |
+| `/api/dm/threads` | Your conversations. `POST` opens one with a friend. |
+| `/api/dm/threads/:id/messages` | Read a thread; `POST` sends. `POST :id/read` clears the badge. |
+| `DELETE /api/dm/messages/:id` | Soft-delete your own message. |
+| `/api/social/badges` | Unread message and pending request counts. |
+| `/api/stickers/gifs?q=&provider=` | Proxied Giphy/Tenor search. `/stickers/emojis` for emoji.gg. |
 | `/api/health` | Liveness, whether the library is indexed and whether a scan is running. |
 | `/api/stats` | Counts, total size, total runtime, format breakdown, last scan time. |
 | `/api/scan/status` | Live scan progress (files found / parsed / reused / errors). |
@@ -674,6 +736,7 @@ boozie-archive/
 │   │   │   └── schema.ts         # SQL migrations (accounts, invites, sessions)
 │   │   ├── lib/
 │   │   │   ├── auth.ts           # accounts, sessions, invite redemption
+│   │   │   ├── social.ts         # friends, direct messages, profiles
 │   │   │   ├── passwords.ts      # scrypt hashing, session tokens, code generation
 │   │   │   ├── scanner.ts        # walk + tag reading + folder fallbacks + aggregation
 │   │   │   ├── library.ts        # in-memory index, queries, persistence
@@ -684,6 +747,8 @@ boozie-archive/
 │   │   └── routes/
 │   │       ├── auth.ts           # register / login / logout / invite pre-check
 │   │       ├── admin.ts          # invite + account management (admins only)
+│   │       ├── social.ts         # friends, DMs, profiles
+│   │       ├── stickers.ts       # proxied Giphy / Tenor / emoji.gg search
 │   │       ├── api.ts            # JSON metadata endpoints
 │   │       └── media.ts          # streaming (range), downloads, covers
 │   └── .env.example
@@ -697,6 +762,7 @@ boozie-archive/
 │   ├── public/                   # manifest, icons, service worker, host redirects
 │   └── .env.example
 ├── POSTGRES.md                   # database setup guide for the Pi
+├── SECURITY.md                   # threat model, audit findings, what is not covered
 ├── scripts/doctor.mjs            # `npm run doctor` — diagnoses a broken setup
 ├── deploy/boozie-archive.service # systemd unit
 ├── ecosystem.config.cjs          # pm2 process definition (port 1981)
@@ -781,6 +847,14 @@ an admin and resets its password.
 The session cookie isn't coming back. Almost always a cross-origin frontend: set
 `COOKIE_SAMESITE=none`, `COOKIE_SECURE=true`, serve the API over HTTPS, and put
 the exact frontend origin in `CORS_ORIGINS` — `*` is not allowed with cookies.
+
+**Signing out doesn't sign me out (Safari).**
+Fixed. The logout request was being rejected with a 400 and the client hid the
+failure, so the session stayed alive on the server. Pull, rebuild, and restart.
+
+**The GIF tab says search isn't configured.**
+No `GIPHY_API_KEY` / `TENOR_API_KEY` in `backend/.env`. A Giphy key is free from
+their developer dashboard; restart after adding it. emoji.gg needs no key.
 
 **The app looks stale after a deploy.**
 The service worker caches the app shell. **Settings → Clear offline cache & reload**, or on iOS

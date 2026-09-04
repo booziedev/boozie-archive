@@ -9,6 +9,9 @@ import { AlbumPage } from './pages/AlbumPage';
 import { AlbumsPage } from './pages/AlbumsPage';
 import { ArtistPage } from './pages/ArtistPage';
 import { AuthPage } from './pages/AuthPage';
+import { FriendsPage } from './pages/FriendsPage';
+import { MessagesPage } from './pages/MessagesPage';
+import { ProfilePage } from './pages/ProfilePage';
 import { ArtistsPage } from './pages/ArtistsPage';
 import { FavouritesPage } from './pages/FavouritesPage';
 import { HomePage } from './pages/HomePage';
@@ -104,6 +107,11 @@ export function App() {
           <Route path="/favourites" element={<FavouritesPage />} />
           {/* Kept so US spelling links don't 404. */}
           <Route path="/favorites" element={<FavouritesPage />} />
+          <Route path="/friends" element={<FriendsPage />} />
+          <Route path="/messages" element={<MessagesPage />} />
+          <Route path="/messages/:friendId" element={<MessagesPage />} />
+          <Route path="/profile" element={<ProfilePage />} />
+          <Route path="/u/:username" element={<ProfilePage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route
             path="/admin"

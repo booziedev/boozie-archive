@@ -73,6 +73,13 @@ class LoginThrottle {
 
 export const loginThrottle = new LoginThrottle();
 
+/**
+ * Separate budget for the endpoints anyone can reach without an account.
+ * Registration and the invite pre-check are the only unauthenticated writes,
+ * and both would otherwise let someone grind through invite codes.
+ */
+export const inviteThrottle = new LoginThrottle();
+
 export function setSessionCookie(reply: FastifyReply, token: string, expiresAt: Date) {
   reply.setCookie(config.cookieName, token, {
     path: '/',
@@ -127,6 +134,10 @@ export const authRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
       password?: string;
       inviteCode?: string;
     };
+
+    const throttleKey = `register:${clientIp(request)}`;
+    inviteThrottle.check(throttleKey);
+    inviteThrottle.fail(throttleKey);
 
     const user = await register({
       username: String(body.username ?? ''),
@@ -183,7 +194,13 @@ export const authRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
   app.get('/auth/invite/:code', async (request) => {
     const { code } = request.params as { code: string };
     if (!config.authEnabled) return { valid: false, reason: 'Accounts are disabled on this server.' };
-    return peekInvite(code);
+
+    // Guessing codes is a numbers game; make it a slow one.
+    const throttleKey = `invite:${clientIp(request)}`;
+    inviteThrottle.check(throttleKey);
+    const result = await peekInvite(code);
+    if (!result.valid) inviteThrottle.fail(throttleKey);
+    return result;
   });
 
   app.post('/auth/password', async (request, reply) => {

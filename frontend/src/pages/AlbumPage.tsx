@@ -3,6 +3,7 @@ import { ArrowLeft, Download, ListPlus, Play, Shuffle } from 'lucide-react';
 
 import { CoverImage } from '../components/CoverImage';
 import { FavoriteButton } from '../components/FavoriteButton';
+import { ShareButton } from '../components/ShareDialog';
 import { TrackRow } from '../components/TrackRow';
 import { ErrorState, TrackListSkeleton } from '../components/states';
 import { mediaUrl } from '../lib/api';
@@ -124,6 +125,14 @@ export function AlbumPage() {
               Queue
             </button>
             <FavoriteButton kind="album" id={album.id} label={album.name} />
+            <ShareButton
+              attachment={{
+                kind: 'album',
+                id: album.id,
+                name: album.name,
+                subtitle: album.artistName,
+              }}
+            />
           </div>
         </div>
       </header>

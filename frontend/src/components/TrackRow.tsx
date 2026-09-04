@@ -3,6 +3,7 @@ import { Download, ListPlus, Pause, Play } from 'lucide-react';
 
 import { CoverImage } from './CoverImage';
 import { FavoriteButton } from './FavoriteButton';
+import { ShareButton } from './ShareDialog';
 import { mediaUrl } from '../lib/api';
 import { formatDuration, isHiRes, qualityLabel } from '../lib/format';
 import { usePlayer } from '../context/PlayerContext';
@@ -163,6 +164,18 @@ export function TrackRow({ track, tracks, index, variant = 'flat' }: TrackRowPro
             <Download size={16} />
           </a>
           <FavoriteButton kind="track" id={track.id} label={track.title} className="h-9 w-9" size={16} />
+          <span className="hidden sm:inline-flex">
+            <ShareButton
+              attachment={{
+                kind: 'track',
+                id: track.id,
+                name: track.title,
+                subtitle: `${track.artist} · ${track.album}`,
+              }}
+              className="icon-btn h-9 w-9"
+              label=""
+            />
+          </span>
         </div>
 
         <span className="w-11 shrink-0 text-right text-xs tabular-nums text-zinc-500">

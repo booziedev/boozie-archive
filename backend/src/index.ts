@@ -12,8 +12,10 @@ import { assertDatabaseReachable, closePool, runMigrations } from './db/pool.js'
 import { AuthError, pruneExpiredSessions, resolveSession } from './lib/auth.js';
 import { apiRoutes } from './routes/api.js';
 import { adminRoutes } from './routes/admin.js';
-import { authRoutes, loginThrottle } from './routes/auth.js';
+import { authRoutes, inviteThrottle, loginThrottle } from './routes/auth.js';
 import { mediaRoutes } from './routes/media.js';
+import { socialRoutes } from './routes/social.js';
+import { stickerRoutes } from './routes/stickers.js';
 
 /** Returns the first candidate directory that contains a built index.html. */
 async function findFrontendDist(): Promise<string | null> {
@@ -38,8 +40,12 @@ async function main() {
     // Range requests and long downloads must not be cut short.
     connectionTimeout: 0,
     requestTimeout: 0,
-    // Trust the reverse proxy (cloudflared / Tailscale) in front of us.
-    trustProxy: true,
+    // Trust X-Forwarded-For only from the loopback proxy (cloudflared /
+    // Tailscale Funnel). Trusting everyone would let any client forge its IP
+    // and walk straight past the login throttle.
+    trustProxy: config.trustProxy,
+    // A metadata API needs kilobytes, not megabytes.
+    bodyLimit: 256 * 1024,
   });
 
   /**
@@ -55,18 +61,63 @@ async function main() {
   await app.register(cookie);
 
   /**
-   * With cookie auth the browser will not accept `Access-Control-Allow-Origin: *`
-   * on a credentialed request, so `origin: true` reflects the caller's origin
-   * instead — same permissiveness, but a form browsers accept with credentials.
+   * CORS.
+   *
+   * Reflecting whatever Origin asked, *with* credentials, would let any website
+   * a signed-in visitor happens to open read their whole archive — and their
+   * messages — using their cookie. So credentials are only ever granted to an
+   * explicitly listed origin. With the default `CORS_ORIGINS=*` and accounts
+   * enabled, cross-origin requests get no credentials at all, which is exactly
+   * right when the Pi serves the app and the API from one origin.
    */
+  const explicitOrigins = config.corsOrigins.filter((origin) => origin !== '*');
   const allowAnyOrigin = config.corsOrigins.includes('*');
+  const credentialedCors = config.authEnabled && explicitOrigins.length > 0;
+
+  if (config.authEnabled && allowAnyOrigin && explicitOrigins.length === 0) {
+    app.log.info(
+      'CORS: same-origin only. To host the frontend on another origin, list it in ' +
+        'CORS_ORIGINS (a wildcard cannot carry credentials).',
+    );
+  }
+
   await app.register(cors, {
-    origin: allowAnyOrigin ? true : config.corsOrigins,
-    credentials: true,
-    methods: ['GET', 'HEAD', 'POST', 'OPTIONS'],
+    origin: config.authEnabled ? (explicitOrigins.length > 0 ? explicitOrigins : false) : allowAnyOrigin ? true : config.corsOrigins,
+    credentials: credentialedCors,
+    methods: ['GET', 'HEAD', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
     // Browsers need these exposed for seeking and progress UI.
     exposedHeaders: ['Content-Length', 'Content-Range', 'Accept-Ranges', 'Content-Disposition'],
     maxAge: 86400,
+  });
+
+  /**
+   * Baseline response headers.
+   *
+   * `no-store` on API replies is what fixes signing out in Safari: without an
+   * explicit directive Safari heuristically caches GET responses, so after a
+   * logout the refetch of /api/auth/me came back from its cache still naming
+   * the old user and the app looked signed in. Media keeps its own long cache
+   * headers, which are set per-route after this hook.
+   */
+  app.addHook('onSend', async (request, reply) => {
+    reply.header('X-Content-Type-Options', 'nosniff');
+    reply.header('Referrer-Policy', 'strict-origin-when-cross-origin');
+    reply.header('X-Frame-Options', 'DENY');
+
+    const pathname = request.url.split('?')[0] ?? '';
+    const isMedia =
+      pathname.startsWith('/api/stream/') ||
+      pathname.startsWith('/api/download/') ||
+      pathname.startsWith('/api/cover/') ||
+      pathname.startsWith('/api/avatar/');
+
+    if (pathname.startsWith('/api/') && !isMedia) {
+      reply.header('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+      reply.header('Pragma', 'no-cache');
+      reply.header('Expires', '0');
+      // Two different accounts must never share a cached response.
+      reply.header('Vary', 'Origin, Cookie');
+    }
   });
 
   /** Turns AuthError into its intended status code instead of a generic 500. */
@@ -86,7 +137,14 @@ async function main() {
   });
 
   /** Routes reachable without an account. Everything else needs one. */
-  const PUBLIC_PATHS = new Set(['/api/health', '/api/auth/context', '/api/auth/login', '/api/auth/register', '/api/auth/logout', '/api/auth/me']);
+  const PUBLIC_PATHS = new Set([
+    '/api/health',
+    '/api/auth/context',
+    '/api/auth/login',
+    '/api/auth/register',
+    '/api/auth/logout',
+    '/api/auth/me',
+  ]);
 
   function isPublicPath(pathname: string): boolean {
     return PUBLIC_PATHS.has(pathname) || pathname.startsWith('/api/auth/invite/');
@@ -100,16 +158,32 @@ async function main() {
       const pathname = request.url.split('?')[0] ?? '';
 
       /**
-       * CSRF: a cookie-authenticated state-changing request must come from an
-       * origin we serve. Same-origin browsers send no Origin header on
-       * same-site form posts, and our own client always sends JSON with an
-       * Origin, so requiring a *matching* Origin when one is present is enough
-       * without breaking curl or the media elements.
+       * CSRF.
+       *
+       * The rule applies only to requests authenticated *by cookie*, since
+       * those are the ones a third-party page could trigger with the visitor's
+       * credentials attached. Token-authenticated calls (the admin rescan) and
+       * anonymous ones are unaffected, so curl and scripts keep working.
+       *
+       * Browsers always send Origin on fetch/XHR, including same-origin, so a
+       * present Origin must match this server or an allowlisted one. A missing
+       * Origin means it did not come from a browser fetch — we still require an
+       * explicit opt-in header so a cross-site <form> post cannot qualify.
        */
-      if (request.method !== 'GET' && request.method !== 'HEAD') {
+      if (token && request.method !== 'GET' && request.method !== 'HEAD') {
         const origin = request.headers.origin;
-        if (origin && !allowAnyOrigin && !config.corsOrigins.includes(origin)) {
-          return reply.code(403).send({ error: 'Cross-origin request blocked.' });
+        if (origin) {
+          const selfOrigins = new Set([
+            `${request.protocol}://${request.hostname}`,
+            `${request.protocol}://${request.headers.host ?? ''}`,
+          ]);
+          if (!selfOrigins.has(origin) && !explicitOrigins.includes(origin)) {
+            return reply.code(403).send({ error: 'Cross-origin request blocked.', code: 'csrf' });
+          }
+        } else if (request.headers['x-requested-with'] !== 'boozie-archive') {
+          return reply
+            .code(403)
+            .send({ error: 'Missing Origin or X-Requested-With header.', code: 'csrf' });
         }
       }
 
@@ -122,10 +196,17 @@ async function main() {
       }
     });
 
-    // Admin-only surface.
+    /**
+     * Admin-only surface. Checked on the parsed pathname rather than the raw
+     * URL so a query string or a trailing segment can't disguise the prefix.
+     */
     app.addHook('onRequest', async (request, reply) => {
-      if (!request.url.startsWith('/api/admin/')) return;
-      if (request.user?.role !== 'admin') {
+      const pathname = request.url.split('?')[0] ?? '';
+      if (pathname !== '/api/admin' && !pathname.startsWith('/api/admin/')) return;
+      if (!request.user) {
+        return reply.code(401).send({ error: 'Sign in first.', code: 'unauthenticated' });
+      }
+      if (request.user.role !== 'admin') {
         return reply.code(403).send({ error: 'Admins only.', code: 'forbidden' });
       }
     });
@@ -137,7 +218,12 @@ async function main() {
   }
 
   await app.register(authRoutes, { prefix: '/api' });
-  if (config.authEnabled) await app.register(adminRoutes, { prefix: '/api' });
+  if (config.authEnabled) {
+    await app.register(adminRoutes, { prefix: '/api' });
+    // Friends, DMs and the GIF/emoji picker only exist when there are accounts.
+    await app.register(socialRoutes, { prefix: '/api' });
+    await app.register(stickerRoutes, { prefix: '/api' });
+  }
   await app.register(apiRoutes, { prefix: '/api' });
   await app.register(mediaRoutes, { prefix: '/api' });
 
@@ -271,6 +357,7 @@ async function main() {
     cleanupTimer = setInterval(
       () => {
         loginThrottle.prune();
+        inviteThrottle.prune();
         pruneExpiredSessions().catch((error) =>
           app.log.warn(`Session cleanup failed: ${(error as Error).message}`),
         );

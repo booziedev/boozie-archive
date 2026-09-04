@@ -5,15 +5,21 @@ import {
   Heart,
   Home,
   LogOut,
+  MessageSquare,
   Music2,
   Settings,
   Shield,
+  UserRound,
   Users,
   Loader2,
 } from 'lucide-react';
 
 import { Player } from './Player';
 import { SearchBar } from './SearchBar';
+import { useQuery } from '@tanstack/react-query';
+
+import { Avatar } from './Avatar';
+import { social } from '../lib/api';
 import { useStats } from '../hooks/useLibrary';
 import { useAuth } from '../context/AuthContext';
 import { useFavorites } from '../context/FavoritesContext';
@@ -28,12 +34,52 @@ const NAV = [
   { to: '/favourites', label: 'Favourites', icon: Heart, end: false },
 ] as const;
 
+/** Social entries carry unread counts, so they live in their own group. */
+const SOCIAL_NAV = [
+  { to: '/friends', label: 'Friends', icon: UserRound, badge: 'friendRequests' as const },
+  { to: '/messages', label: 'Messages', icon: MessageSquare, badge: 'messages' as const },
+] as const;
+
+/** Small count pill shown next to a nav entry. */
+function NavBadge({ count }: { count: number }) {
+  if (count <= 0) return null;
+  return (
+    <span className="ml-auto rounded-full bg-accent-500 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-white">
+      {count > 99 ? '99+' : count}
+    </span>
+  );
+}
+
 /** App shell: sidebar (desktop), top bar, bottom tab bar (mobile) and player. */
 export function Layout() {
   const { data: stats } = useStats();
   const { favorites } = useFavorites();
   const { user, isAdmin, signOut } = useAuth();
   const location = useLocation();
+
+  // Polled so a new message or friend request shows up without a refresh.
+  const badgesQuery = useQuery({
+    queryKey: ['social', 'badges'],
+    queryFn: social.badges,
+    enabled: Boolean(user),
+    refetchInterval: 20_000,
+  });
+  const badges = badgesQuery.data ?? { messages: 0, friendRequests: 0 };
+
+  const profileQuery = useQuery({
+    queryKey: ['profile', 'me'],
+    queryFn: social.myProfile,
+    enabled: Boolean(user),
+    staleTime: 5 * 60 * 1000,
+  });
+  const myProfile = profileQuery.data?.profile ?? null;
+  const fallbackProfile = {
+    id: user?.id ?? '',
+    username: user?.username ?? '',
+    displayName: null,
+    avatarUrl: null,
+    accentColor: null,
+  };
 
   // Every navigation starts at the top of the page.
   useEffect(() => {
@@ -61,7 +107,7 @@ export function Layout() {
         </div>
 
         <nav className="flex-1 space-y-1 px-3">
-          {NAV.map(({ to, label, icon: Icon, end }) => (
+          {[...NAV].map(({ to, label, icon: Icon, end }) => (
             <NavLink
               key={to}
               to={to}
@@ -92,20 +138,54 @@ export function Layout() {
               )}
             </NavLink>
           ))}
+
+          {user && (
+            <>
+              <hr className="!my-3 border-white/5" />
+              {SOCIAL_NAV.map(({ to, label, icon: Icon, badge }) => (
+                <NavLink
+                  key={to}
+                  to={to}
+                  className={({ isActive }) =>
+                    `group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200 ease-vault ${
+                      isActive
+                        ? 'bg-white/[0.06] text-white'
+                        : 'text-zinc-500 hover:bg-white/[0.03] hover:text-zinc-200'
+                    }`
+                  }
+                >
+                  {({ isActive }) => (
+                    <>
+                      <span
+                        className={`absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-r-full bg-accent-500 transition-opacity duration-200 ${
+                          isActive ? 'opacity-100' : 'opacity-0'
+                        }`}
+                      />
+                      <Icon size={18} strokeWidth={2} />
+                      {label}
+                      <NavBadge count={badges[badge]} />
+                    </>
+                  )}
+                </NavLink>
+              ))}
+            </>
+          )}
         </nav>
 
         <div className="space-y-3 px-6 pb-6">
           {user && (
             <div className="flex items-center gap-2 border-b border-white/5 pb-3">
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent-500/20 text-[11px] font-bold uppercase text-accent-200">
-                {user.username.slice(0, 2)}
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-xs font-medium text-zinc-300">{user.username}</span>
-                {isAdmin && (
-                  <span className="block text-[10px] uppercase tracking-wider text-accent-400">admin</span>
-                )}
-              </span>
+              <NavLink to="/profile" className="flex min-w-0 flex-1 items-center gap-2">
+                <Avatar profile={myProfile ?? fallbackProfile} size={28} ring />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-xs font-medium text-zinc-300">
+                    {myProfile?.displayName || user.username}
+                  </span>
+                  {isAdmin && (
+                    <span className="block text-[10px] uppercase tracking-wider text-accent-400">admin</span>
+                  )}
+                </span>
+              </NavLink>
               <button
                 type="button"
                 onClick={() => void signOut()}
@@ -177,6 +257,30 @@ export function Layout() {
 
             {user && (
               <div className="flex items-center gap-0.5 lg:hidden">
+                <NavLink
+                  to="/messages"
+                  aria-label="Messages"
+                  className={({ isActive }) =>
+                    `icon-btn relative h-9 w-9 ${isActive ? 'text-accent-300' : ''}`
+                  }
+                >
+                  <MessageSquare size={18} />
+                  {badges.messages > 0 && (
+                    <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-accent-500" />
+                  )}
+                </NavLink>
+                <NavLink
+                  to="/friends"
+                  aria-label="Friends"
+                  className={({ isActive }) =>
+                    `icon-btn relative h-9 w-9 ${isActive ? 'text-accent-300' : ''}`
+                  }
+                >
+                  <UserRound size={18} />
+                  {badges.friendRequests > 0 && (
+                    <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-accent-500" />
+                  )}
+                </NavLink>
                 {isAdmin && (
                   <NavLink
                     to="/admin"

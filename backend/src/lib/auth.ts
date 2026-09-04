@@ -448,7 +448,9 @@ export async function listUsers(): Promise<AdminUser[]> {
   const { rows } = await pool.query<
     UserRow & { invite_code: string | null; session_count: string }
   >(
-    `SELECT u.*,
+    // Columns are listed explicitly: `u.*` would pull every password hash in
+    // the database into memory for a page that only shows names and roles.
+    `SELECT u.id, u.username, u.role, u.disabled, u.created_at, u.last_login_at,
             i.code AS invite_code,
             (SELECT count(*) FROM sessions s WHERE s.user_id = u.id AND s.expires_at > now())::text
               AS session_count

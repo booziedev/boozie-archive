@@ -3,15 +3,25 @@ import type {
   AccountUser,
   AdminAccountUser,
   Album,
+  Attachment,
   AlbumDetail,
   Artist,
   ArtistDetail,
   AuthContextInfo,
+  EmojiResult,
+  FriendStatus,
+  FriendSummary,
+  GifResult,
   Invite,
   LibraryStats,
+  Message,
   Page,
+  PendingProfile,
+  PublicProfile,
   SearchResults,
   SortKey,
+  StickerProviders,
+  ThreadSummary,
   Track,
 } from './types';
 
@@ -88,9 +98,27 @@ function qs(params: ListParams = {}): string {
 }
 
 function jsonRequest<T>(path: string, method: string, body?: unknown): Promise<T> {
+  const headers: Record<string, string> = {
+    // Marks the call as coming from our own client. The server requires either
+    // a matching Origin or this header on cookie-authenticated writes, which is
+    // what stops a third-party page acting as the user.
+    'X-Requested-With': 'boozie-archive',
+  };
+
+  /**
+   * Only declare a JSON body when there is one.
+   *
+   * Fastify rejects `Content-Type: application/json` with an empty body as a
+   * 400, which silently broke every POST that takes no arguments — logout
+   * above all: the request failed, the session stayed alive on the server, and
+   * the client cleared its own state anyway, so it only *looked* signed out
+   * until the next page load restored it.
+   */
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
+
   return request<T>(path, {
     method,
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: body === undefined ? undefined : JSON.stringify(body),
   });
 }
@@ -123,6 +151,71 @@ export const admin = {
     jsonRequest<{ user: AccountUser }>(`/api/admin/users/${encodeURIComponent(id)}`, 'PATCH', patch),
   deleteUser: (id: string) =>
     jsonRequest<{ ok: true }>(`/api/admin/users/${encodeURIComponent(id)}`, 'DELETE'),
+};
+
+export const social = {
+  // profiles
+  myProfile: () => request<{ profile: PublicProfile }>('/api/profile/me'),
+  updateProfile: (patch: {
+    displayName?: string | null;
+    bio?: string | null;
+    avatarUrl?: string | null;
+    accentColor?: string | null;
+  }) => jsonRequest<{ profile: PublicProfile }>('/api/profile/me', 'PATCH', patch),
+  profile: (username: string) =>
+    request<{ profile: PublicProfile }>(`/api/profile/${encodeURIComponent(username)}`),
+  searchUsers: (q: string) =>
+    request<{ users: PublicProfile[] }>(`/api/users/search?q=${encodeURIComponent(q)}`),
+
+  // friends
+  friends: () =>
+    request<{ friends: FriendSummary[]; incoming: PendingProfile[]; outgoing: PendingProfile[] }>(
+      '/api/friends',
+    ),
+  addFriend: (userId: string) =>
+    jsonRequest<{ status: FriendStatus }>('/api/friends/requests', 'POST', { userId }),
+  acceptFriend: (friendshipId: string) =>
+    jsonRequest<{ status: FriendStatus }>(
+      `/api/friends/requests/${encodeURIComponent(friendshipId)}/accept`,
+      'POST',
+    ),
+  removeFriend: (userId: string) =>
+    jsonRequest<{ status: FriendStatus }>(`/api/friends/${encodeURIComponent(userId)}`, 'DELETE'),
+  blockUser: (userId: string) =>
+    jsonRequest<{ status: FriendStatus }>(`/api/friends/${encodeURIComponent(userId)}/block`, 'POST'),
+  unblockUser: (userId: string) =>
+    jsonRequest<{ status: FriendStatus }>(`/api/friends/${encodeURIComponent(userId)}/block`, 'DELETE'),
+
+  // direct messages
+  threads: () => request<{ threads: ThreadSummary[] }>('/api/dm/threads'),
+  openThread: (userId: string) =>
+    jsonRequest<{ threadId: string }>('/api/dm/threads', 'POST', { userId }),
+  messages: (threadId: string, before?: string) =>
+    request<{ messages: Message[] }>(
+      `/api/dm/threads/${encodeURIComponent(threadId)}/messages${before ? `?before=${encodeURIComponent(before)}` : ''}`,
+    ),
+  sendMessage: (threadId: string, input: { body?: string; attachment?: Attachment }) =>
+    jsonRequest<{ message: Message }>(
+      `/api/dm/threads/${encodeURIComponent(threadId)}/messages`,
+      'POST',
+      input,
+    ),
+  markRead: (threadId: string) =>
+    jsonRequest<{ ok: true }>(`/api/dm/threads/${encodeURIComponent(threadId)}/read`, 'POST'),
+  deleteMessage: (messageId: string) =>
+    jsonRequest<{ ok: true }>(`/api/dm/messages/${encodeURIComponent(messageId)}`, 'DELETE'),
+
+  badges: () => request<{ messages: number; friendRequests: number }>('/api/social/badges'),
+};
+
+export const stickers = {
+  providers: () => request<StickerProviders>('/api/stickers/providers'),
+  gifs: (q: string, provider: 'giphy' | 'tenor') =>
+    request<{ results: GifResult[] }>(
+      `/api/stickers/gifs?provider=${provider}&q=${encodeURIComponent(q)}`,
+    ),
+  emojis: (q: string) =>
+    request<{ results: EmojiResult[] }>(`/api/stickers/emojis?q=${encodeURIComponent(q)}`),
 };
 
 export const api = {

@@ -137,3 +137,81 @@ export interface Invite {
   disabled: boolean;
   status: InviteStatus;
 }
+
+// --- profiles, friends and direct messages ---------------------------------
+
+export type FriendStatus = 'none' | 'pending_out' | 'pending_in' | 'friends' | 'blocked';
+
+export interface PublicProfile {
+  id: string;
+  username: string;
+  displayName: string | null;
+  bio: string | null;
+  avatarUrl: string | null;
+  accentColor: string | null;
+  role: Role;
+  createdAt: string;
+  friendStatus: FriendStatus;
+}
+
+export interface FriendSummary extends PublicProfile {
+  friendshipId: string;
+  since: string;
+}
+
+export type PendingProfile = PublicProfile & { friendshipId: string };
+
+/** A GIF, a custom emoji, or a piece of the library being shared. */
+export type Attachment =
+  | {
+      kind: 'gif';
+      url: string;
+      previewUrl: string;
+      width?: number;
+      height?: number;
+      provider: string;
+      title?: string;
+    }
+  | { kind: 'emoji'; url: string; name: string; provider: string }
+  | { kind: 'album' | 'artist' | 'track'; id: string; name: string; subtitle?: string };
+
+export interface Message {
+  id: string;
+  threadId: string;
+  senderId: string;
+  body: string | null;
+  attachment: Attachment | null;
+  createdAt: string;
+  deleted: boolean;
+}
+
+export interface ThreadSummary {
+  id: string;
+  friend: PublicProfile;
+  lastMessageAt: string | null;
+  lastMessagePreview: string | null;
+  unread: number;
+}
+
+export interface GifResult {
+  id: string;
+  url: string;
+  previewUrl: string;
+  width?: number;
+  height?: number;
+  title?: string;
+  provider: 'giphy' | 'tenor';
+}
+
+export interface EmojiResult {
+  id: string;
+  name: string;
+  url: string;
+  provider: 'emoji.gg';
+}
+
+export interface StickerProviders {
+  giphy: boolean;
+  tenor: boolean;
+  emojiGg: boolean;
+}
