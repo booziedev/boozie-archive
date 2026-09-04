@@ -1,9 +1,13 @@
 import { apiUrl } from './config';
 import type {
+  AccountUser,
+  AdminAccountUser,
   Album,
   AlbumDetail,
   Artist,
   ArtistDetail,
+  AuthContextInfo,
+  Invite,
   LibraryStats,
   Page,
   SearchResults,
@@ -16,9 +20,15 @@ export class ApiError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    /** Machine-readable reason, e.g. `invite_expired` or `unauthenticated`. */
+    readonly code?: string,
   ) {
     super(message);
     this.name = 'ApiError';
+  }
+
+  get isUnauthenticated(): boolean {
+    return this.status === 401;
   }
 }
 
@@ -27,6 +37,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   try {
     response = await fetch(apiUrl(path), {
       ...init,
+      // The session lives in an httpOnly cookie, so every call must send
+      // credentials — including cross-origin ones when the frontend is hosted
+      // separately from the Pi.
+      credentials: 'include',
       headers: { Accept: 'application/json', ...(init?.headers ?? {}) },
     });
   } catch {
@@ -38,13 +52,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     let message = `Request failed (${response.status})`;
+    let code: string | undefined;
     try {
-      const body = (await response.json()) as { error?: string };
+      const body = (await response.json()) as { error?: string; code?: string };
       if (body?.error) message = body.error;
+      code = body?.code;
     } catch {
       // Non-JSON error body — keep the generic message.
     }
-    throw new ApiError(message, response.status);
+    throw new ApiError(message, response.status, code);
   }
 
   return (await response.json()) as T;
@@ -70,6 +86,44 @@ function qs(params: ListParams = {}): string {
   const serialized = search.toString();
   return serialized ? `?${serialized}` : '';
 }
+
+function jsonRequest<T>(path: string, method: string, body?: unknown): Promise<T> {
+  return request<T>(path, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+}
+
+export const auth = {
+  context: () => request<AuthContextInfo>('/api/auth/context'),
+  me: () => request<{ user: AccountUser | null }>('/api/auth/me'),
+  login: (username: string, password: string) =>
+    jsonRequest<{ user: AccountUser }>('/api/auth/login', 'POST', { username, password }),
+  register: (input: { username: string; password: string; inviteCode?: string }) =>
+    jsonRequest<{ user: AccountUser }>('/api/auth/register', 'POST', input),
+  logout: () => jsonRequest<{ ok: true }>('/api/auth/logout', 'POST'),
+  checkInvite: (code: string) =>
+    request<{ valid: boolean; reason?: string }>(`/api/auth/invite/${encodeURIComponent(code)}`),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    jsonRequest<{ ok: true }>('/api/auth/password', 'POST', { currentPassword, newPassword }),
+};
+
+export const admin = {
+  invites: () => request<{ invites: Invite[] }>('/api/admin/invites'),
+  createInvite: (input: { label?: string; expiresInSeconds: number | null; maxUses: number | null }) =>
+    jsonRequest<{ invite: Invite }>('/api/admin/invites', 'POST', input),
+  setInviteDisabled: (id: string, disabled: boolean) =>
+    jsonRequest<{ invite: Invite }>(`/api/admin/invites/${encodeURIComponent(id)}`, 'PATCH', { disabled }),
+  deleteInvite: (id: string) =>
+    jsonRequest<{ ok: true }>(`/api/admin/invites/${encodeURIComponent(id)}`, 'DELETE'),
+
+  users: () => request<{ users: AdminAccountUser[] }>('/api/admin/users'),
+  updateUser: (id: string, patch: { role?: 'user' | 'admin'; disabled?: boolean }) =>
+    jsonRequest<{ user: AccountUser }>(`/api/admin/users/${encodeURIComponent(id)}`, 'PATCH', patch),
+  deleteUser: (id: string) =>
+    jsonRequest<{ ok: true }>(`/api/admin/users/${encodeURIComponent(id)}`, 'DELETE'),
+};
 
 export const api = {
   stats: () => request<LibraryStats>('/api/stats'),

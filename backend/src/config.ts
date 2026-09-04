@@ -108,6 +108,46 @@ export const config = {
   serveFrontend: bool('SERVE_FRONTEND', true),
 
   logLevel: str('LOG_LEVEL', 'info'),
+
+  // --- accounts, sessions, invites ---------------------------------------
+
+  /**
+   * When enabled (the default) every API route except the auth endpoints
+   * requires a signed-in account, and registration requires an invite code.
+   * Set AUTH_ENABLED=false to run the archive wide open with no database.
+   */
+  authEnabled: bool('AUTH_ENABLED', true),
+
+  /**
+   * Let signed-out visitors browse and play without an account. Registration
+   * still needs an invite; this only relaxes reading.
+   */
+  allowPublicBrowse: bool('ALLOW_PUBLIC_BROWSE', false),
+
+  databaseUrl: str('DATABASE_URL', 'postgres://boozie:boozie@localhost:5432/boozie_archive'),
+  databasePoolMax: int('DATABASE_POOL_MAX', 8),
+  databaseSsl: bool('DATABASE_SSL', false),
+
+  /** How long a login lasts before the browser has to sign in again. */
+  sessionTtlDays: int('SESSION_TTL_DAYS', 30),
+  cookieName: str('COOKIE_NAME', 'boozie_session'),
+  /**
+   * Leave these alone for a LAN / Tailscale setup over plain HTTP. When the
+   * frontend is hosted on a different origin (Cloudflare Pages) over HTTPS,
+   * set COOKIE_SAMESITE=none and COOKIE_SECURE=true so the cookie is allowed
+   * to travel cross-site.
+   */
+  cookieSameSite: (() => {
+    const value = str('COOKIE_SAMESITE', 'lax').toLowerCase();
+    return (['lax', 'strict', 'none'].includes(value) ? value : 'lax') as 'lax' | 'strict' | 'none';
+  })(),
+  cookieSecure: bool('COOKIE_SECURE', str('COOKIE_SAMESITE', 'lax').toLowerCase() === 'none'),
+
+  minPasswordLength: int('MIN_PASSWORD_LENGTH', 8),
+
+  /** Failed logins allowed per username+IP inside the window below. */
+  loginMaxAttempts: int('LOGIN_MAX_ATTEMPTS', 10),
+  loginWindowMinutes: int('LOGIN_WINDOW_MINUTES', 15),
 } as const;
 
 /** Audio extensions we index. Everything here is supported by music-metadata. */

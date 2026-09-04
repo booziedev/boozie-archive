@@ -1,10 +1,14 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { Route, Routes } from 'react-router-dom';
+import { Disc3 } from 'lucide-react';
 
 import { Layout } from './components/Layout';
+import { useAuth } from './context/AuthContext';
+import { AdminPage } from './pages/AdminPage';
 import { AlbumPage } from './pages/AlbumPage';
 import { AlbumsPage } from './pages/AlbumsPage';
 import { ArtistPage } from './pages/ArtistPage';
+import { AuthPage } from './pages/AuthPage';
 import { ArtistsPage } from './pages/ArtistsPage';
 import { FavouritesPage } from './pages/FavouritesPage';
 import { HomePage } from './pages/HomePage';
@@ -44,7 +48,48 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
   }
 }
 
+/** Blocks a route for non-admins rather than 404-ing it. */
+function RequireAdmin({ children }: { children: ReactNode }) {
+  const { isAdmin, isLoading } = useAuth();
+  if (isLoading) return null;
+  if (!isAdmin) {
+    return (
+      <div className="flex min-h-[50vh] flex-col items-center justify-center gap-3 text-center">
+        <h1 className="text-xl font-bold text-zinc-200">Admins only</h1>
+        <p className="max-w-sm text-sm text-zinc-500">
+          This page manages invite codes and accounts. Ask an admin if you need access.
+        </p>
+      </div>
+    );
+  }
+  return <>{children}</>;
+}
+
 export function App() {
+  const { needsAuth, isLoading } = useAuth();
+
+  // Wait for the session check before deciding what to render, so a signed-in
+  // visitor never sees the login screen flash on a reload.
+  if (isLoading) {
+    return (
+      <div className="flex min-h-[100dvh] items-center justify-center">
+        <Disc3 size={28} className="animate-spin text-accent-500" style={{ animationDuration: '2.4s' }} />
+      </div>
+    );
+  }
+
+  // Signed out on a private archive: the only thing reachable is the gate.
+  if (needsAuth) {
+    return (
+      <ErrorBoundary>
+        <Routes>
+          <Route path="/invite/:code" element={<AuthPage />} />
+          <Route path="*" element={<AuthPage />} />
+        </Routes>
+      </ErrorBoundary>
+    );
+  }
+
   return (
     <ErrorBoundary>
       <Routes>
@@ -60,6 +105,16 @@ export function App() {
           {/* Kept so US spelling links don't 404. */}
           <Route path="/favorites" element={<FavouritesPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route
+            path="/admin"
+            element={
+              <RequireAdmin>
+                <AdminPage />
+              </RequireAdmin>
+            }
+          />
+          {/* An invite link opened while already signed in just goes home. */}
+          <Route path="/invite/:code" element={<HomePage />} />
           <Route path="*" element={<NotFoundPage />} />
         </Route>
       </Routes>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 
 import { mediaUrl } from '../lib/api';
+import { mediaCrossOrigin } from '../lib/config';
 import { gradientFor, initials } from '../lib/format';
 
 interface CoverImageProps {
@@ -59,6 +60,8 @@ export function CoverImage({
         <img
           src={mediaUrl.cover(id, size)}
           alt=""
+          // Sends the session cookie when the API is on another origin.
+          crossOrigin={mediaCrossOrigin()}
           loading={eager ? 'eager' : 'lazy'}
           decoding="async"
           draggable={false}

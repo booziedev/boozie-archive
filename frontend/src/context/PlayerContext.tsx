@@ -10,6 +10,7 @@ import {
 import type { ReactNode } from 'react';
 
 import { mediaUrl } from '../lib/api';
+import { mediaCrossOrigin } from '../lib/config';
 import type { Track } from '../lib/types';
 
 /**
@@ -145,6 +146,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   if (audioRef.current === null && typeof window !== 'undefined') {
     const audio = new Audio();
     audio.preload = 'metadata';
+    // Only set when the API is cross-origin: the attribute makes the browser
+    // send the session cookie, but demands CORS headers in return.
+    const crossOrigin = mediaCrossOrigin();
+    if (crossOrigin) audio.crossOrigin = crossOrigin;
     audioRef.current = audio;
   }
 

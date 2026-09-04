@@ -138,6 +138,51 @@ try {
   bad(`data dir not writable: ${dataDir}`, `mkdir -p ${dataDir} && sudo chown -R $USER ${dataDir}`);
 }
 
+// --- accounts / database ---------------------------------------------------
+console.log('\nAccounts');
+const authEnabled = !env.AUTH_ENABLED || ['1', 'true', 'yes', 'on'].includes(env.AUTH_ENABLED.toLowerCase());
+
+if (!authEnabled) {
+  warn('AUTH_ENABLED=false', 'the archive is open to anyone who can reach it');
+} else {
+  const url = env.DATABASE_URL || 'postgres://boozie:boozie@localhost:5432/boozie_archive';
+  const redacted = url.replace(/:[^:@/]*@/, ':***@');
+  if (!env.DATABASE_URL) {
+    warn('DATABASE_URL not set in backend/.env', `falling back to ${redacted}`);
+  } else if (/CHANGE_ME/.test(url)) {
+    bad('DATABASE_URL still contains the CHANGE_ME placeholder', 'set a real password — see POSTGRES.md step 2');
+  } else {
+    ok('DATABASE_URL set', redacted);
+  }
+
+  // Ask the running server rather than opening our own connection: it is the
+  // process whose credentials actually matter.
+  const context = await new Promise((resolve) => {
+    const request = http.get(
+      { host: '127.0.0.1', port: Number(port), path: '/api/auth/context', timeout: 3000 },
+      (response) => {
+        let data = '';
+        response.on('data', (chunk) => { data += chunk; });
+        response.on('end', () => {
+          try { resolve(JSON.parse(data)); } catch { resolve(null); }
+        });
+      },
+    );
+    request.on('timeout', () => { request.destroy(); resolve(null); });
+    request.on('error', () => resolve(null));
+  });
+
+  if (!context) {
+    warn('could not ask the server about accounts', 'is it running? pm2 start ecosystem.config.cjs');
+  } else if (context.authEnabled === false) {
+    warn('the running server has accounts disabled', 'it was started with AUTH_ENABLED=false');
+  } else if (context.needsSetup) {
+    ok('database connected, no accounts yet', `open http://<pi>:${port}/ to create the admin account`);
+  } else {
+    ok('database connected, accounts exist');
+  }
+}
+
 // --- live server -----------------------------------------------------------
 console.log('\nRunning server');
 const body = await new Promise((resolve) => {

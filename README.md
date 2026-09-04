@@ -11,6 +11,8 @@ Netlify, and reaches the Pi over a free HTTPS tunnel.
 - **Full embedded metadata** read with [`music-metadata`](https://github.com/Borewit/music-metadata)
 - **Cover art** from embedded tags or `cover.jpg` / `folder.jpg` next to the audio
 - **Favourites** stored on the device, **filters** by genre, year, format
+- **Invite-only accounts** backed by PostgreSQL, with a Discord-style admin panel
+  for issuing, expiring and disabling invite codes
 - Installable from **Safari on iOS** as a full-screen app with lock-screen controls
 
 ---
@@ -23,12 +25,13 @@ Netlify, and reaches the Pi over a free HTTPS tunnel.
 4. [Running it as a service](#running-it-as-a-service)
 5. [Exposing it publicly for free](#exposing-it-publicly-for-free)
 6. [Serving the frontend](#serving-the-frontend)
-7. [Installing on iOS](#installing-on-ios)
-8. [How metadata scanning works](#how-metadata-scanning-works)
-9. [Environment variables](#environment-variables)
-10. [API reference](#api-reference)
-11. [Project structure](#project-structure)
-12. [Troubleshooting](#troubleshooting) — start with `npm run doctor`
+7. [Accounts and invites](#accounts-and-invites)
+8. [Installing on iOS](#installing-on-ios)
+9. [How metadata scanning works](#how-metadata-scanning-works)
+10. [Environment variables](#environment-variables)
+11. [API reference](#api-reference)
+12. [Project structure](#project-structure)
+13. [Troubleshooting](#troubleshooting) — start with `npm run doctor`
 
 ---
 
@@ -47,7 +50,8 @@ process, so there is one tunnel, one URL and no CORS to think about. This is the
  │                │  (cloudflared /       │  ├─ /            web app     │
  │                │   Tailscale Funnel)   │  ├─ /api/…       metadata    │
  │                │                       │  ├─ /api/stream  audio       │
- └────────────────┘                       │  └─ /home/admin/ssd/…/music/ │
+ └────────────────┘                       │  ├─ PostgreSQL   accounts    │
+                                          │  └─ /home/admin/ssd/…/music/ │
                                           └──────────────────────────────┘
 ```
 
@@ -84,7 +88,8 @@ npm run install:all
 
 # --- backend ---
 cp backend/.env.example backend/.env
-#   edit backend/.env and point MUSIC_ROOT at a folder with music in it
+#   edit backend/.env: point MUSIC_ROOT at your collection, and set DATABASE_URL
+#   (see POSTGRES.md — or set AUTH_ENABLED=false to run without accounts)
 npm run dev:backend          # http://localhost:1981
 
 # --- frontend (second terminal) ---
@@ -423,6 +428,83 @@ VITE_API_BASE_URL=https://music-api.example.com npm run build
 
 ---
 
+## Accounts and invites
+
+The archive is private by default: browsing requires an account, and creating an
+account requires an invite code you issue. Credentials live in PostgreSQL on the
+same Pi — **[POSTGRES.md](POSTGRES.md) is the full setup guide**, roughly five
+minutes end to end.
+
+The short version:
+
+```bash
+sudo apt install -y postgresql
+sudo -u postgres psql <<'SQL'
+CREATE ROLE boozie WITH LOGIN PASSWORD 'a-password-you-choose';
+CREATE DATABASE boozie_archive OWNER boozie;
+SQL
+# then set DATABASE_URL in backend/.env and restart
+```
+
+The app creates and migrates its own tables on first start — nothing to import.
+
+### The first account
+
+Open the archive and you get a **Set up the archive** screen: the first account
+created becomes the admin and needs no invite (there is nobody to have issued
+one yet). Every account after that must redeem a code. From a terminal instead:
+
+```bash
+npm --prefix backend run admin -- yourname 'your-password'
+```
+
+That same command promotes an existing account and resets its password, which is
+the way back in if you ever lock yourself out.
+
+### Issuing invites
+
+**Admin** in the sidebar (admins only) is a Discord-shaped invite manager:
+
+- **Expire after** — 30 minutes, 1/6/12 hours, 1/7/30 days, or never
+- **Max number of uses** — 1, 5, 10, 25, 50, 100, or unlimited
+- **Label** — a private note, e.g. "discord friends"
+
+Every code in the list shows a live countdown, a use counter (`3 / 10`) and a
+status of `active`, `disabled`, `expired` or `exhausted`. The toggle disables a
+code at any time without touching the accounts that already used it, and
+re-enables it just as easily. The link button copies
+`https://your-archive/invite/CODE`, which opens the sign-up form with the code
+filled in and validated as you watch.
+
+The accounts table below it lists everyone, which code they joined with, when
+they were last seen, and lets you promote, disable or delete them. Disabling
+someone signs them out everywhere immediately.
+
+### How it's secured
+
+- Passwords are hashed with **scrypt** (Node's built-in — no native module to
+  compile on a Pi), with a random per-password salt.
+- Sessions are opaque random tokens in an **httpOnly cookie**; only their
+  SHA-256 is stored, so a database dump can't be replayed as a login. Cookies
+  are used rather than a token in localStorage because `<audio>` and `<img>`
+  cannot send an Authorization header — and the player needs credentials.
+- Redeeming a code is a **single transaction with the row locked**, so two
+  people racing for the last use of a code can't both get in. A failed
+  registration (a taken username, say) rolls the use back.
+- Failed sign-ins are throttled per username+IP; unknown usernames take the same
+  time as wrong passwords, so the response doesn't reveal who exists.
+- The last active admin cannot be demoted, disabled or deleted.
+- If the database is unreachable the server **refuses to start**, rather than
+  falling back to serving the whole archive unauthenticated.
+
+### Options
+
+| Want | Setting |
+| --- | --- |
+| No accounts at all, no database | `AUTH_ENABLED=false` |
+| Anyone can browse, but joining still needs an invite | `ALLOW_PUBLIC_BROWSE=true` |
+| Frontend hosted on another origin | `COOKIE_SAMESITE=none`, `COOKIE_SECURE=true`, and list the exact origin in `CORS_ORIGINS` (`*` cannot be used with cookies) |
+
 ## Installing on iOS
 
 1. Open the site in **Safari** (Chrome on iOS cannot install web apps).
@@ -505,6 +587,16 @@ tags are always preferred.
 | `ADMIN_TOKEN` | *(empty)* | Bearer token for `POST /api/rescan`. Empty disables the route. |
 | `COVER_SIZES` | `128,320,640` | Thumbnail sizes generated on demand. |
 | `FOLLOW_SYMLINKS` | `false` | Follow symlinks while walking (loop-guarded). |
+| `AUTH_ENABLED` | `true` | Require an account to browse and an invite to register. |
+| `DATABASE_URL` | `postgres://boozie:boozie@localhost:5432/boozie_archive` | PostgreSQL connection string. |
+| `DATABASE_SSL` | `false` | TLS for a managed Postgres. |
+| `SESSION_TTL_DAYS` | `30` | How long a signed-in browser stays signed in. |
+| `COOKIE_SAMESITE` | `lax` | `none` when the frontend is on another origin. |
+| `COOKIE_SECURE` | `false` | `true` for HTTPS / cross-origin. |
+| `MIN_PASSWORD_LENGTH` | `8` | Minimum password length at registration. |
+| `LOGIN_MAX_ATTEMPTS` | `10` | Failed sign-ins per username+IP before lockout. |
+| `LOGIN_WINDOW_MINUTES` | `15` | Length of that lockout window. |
+| `ALLOW_PUBLIC_BROWSE` | `false` | Let signed-out visitors browse (joining still needs an invite). |
 | `SERVE_FRONTEND` | `true` | Also serve `frontend/dist` at `/` when it exists. |
 | `FRONTEND_DIST` | `../frontend/dist` | Where the built web app lives (relative to the working directory). |
 | `LOG_LEVEL` | `info` | `fatal`…`trace`. |
@@ -525,8 +617,20 @@ All JSON endpoints are `GET` unless noted, and all list endpoints accept
 `?q=&genre=&year=&sort=&limit=&offset=` (`sort` ∈ `name | recent | tracks | year | duration | random`).
 List responses are `{ items, total, limit, offset }`.
 
+Everything except `/api/health` and the `/api/auth/*` endpoints requires a
+session cookie when `AUTH_ENABLED=true`.
+
 | Endpoint | Description |
 | --- | --- |
+| `/api/auth/context` | Whether accounts are on, and whether this is a fresh install. |
+| `/api/auth/me` | The signed-in account, or `null`. |
+| `POST /api/auth/register` | Create an account (`username`, `password`, `inviteCode`). |
+| `POST /api/auth/login` | Sign in; sets the session cookie. |
+| `POST /api/auth/logout` | Destroy the session. |
+| `/api/auth/invite/:code` | Pre-check a code before submitting the form. |
+| `POST /api/auth/password` | Change your password; signs out other devices. |
+| `/api/admin/invites` | **Admin.** List codes. `POST` creates one, `PATCH :id` enables/disables, `DELETE :id` removes. |
+| `/api/admin/users` | **Admin.** List accounts. `PATCH :id` sets role/disabled, `DELETE :id` removes. |
 | `/api/health` | Liveness, whether the library is indexed and whether a scan is running. |
 | `/api/stats` | Counts, total size, total runtime, format breakdown, last scan time. |
 | `/api/scan/status` | Live scan progress (files found / parsed / reused / errors). |
@@ -565,7 +669,12 @@ boozie-archive/
 │   │   ├── config.ts             # env parsing, format/MIME tables
 │   │   ├── types.ts              # shared data model
 │   │   ├── cli/scan.ts           # one-shot scanner (npm run scan)
+│   │   ├── db/
+│   │   │   ├── pool.ts           # pg pool + migration runner
+│   │   │   └── schema.ts         # SQL migrations (accounts, invites, sessions)
 │   │   ├── lib/
+│   │   │   ├── auth.ts           # accounts, sessions, invite redemption
+│   │   │   ├── passwords.ts      # scrypt hashing, session tokens, code generation
 │   │   │   ├── scanner.ts        # walk + tag reading + folder fallbacks + aggregation
 │   │   │   ├── library.ts        # in-memory index, queries, persistence
 │   │   │   ├── covers.ts         # artwork extraction, resizing, disk cache
@@ -573,18 +682,22 @@ boozie-archive/
 │   │   │   ├── ids.ts            # stable content-derived ids
 │   │   │   └── text.ts           # tag/filename normalisation helpers
 │   │   └── routes/
+│   │       ├── auth.ts           # register / login / logout / invite pre-check
+│   │       ├── admin.ts          # invite + account management (admins only)
 │   │       ├── api.ts            # JSON metadata endpoints
 │   │       └── media.ts          # streaming (range), downloads, covers
 │   └── .env.example
 ├── frontend/
 │   ├── src/
 │   │   ├── components/           # Layout, Player, SearchBar, cards, track rows, states
-│   │   ├── context/              # PlayerContext (audio + Media Session), FavoritesContext
+│   │   ├── context/              # AuthContext, PlayerContext (audio + Media Session), FavoritesContext
 │   │   ├── hooks/                # react-query wrappers, URL-synced filters, debounce
 │   │   ├── lib/                  # API client, formatters, runtime config
-│   │   └── pages/                # Home, Artists, Artist, Albums, Album, Tracks, Search, …
+│   │   └── pages/                # Home, Artists, Album, Tracks, Search, Auth, Admin, …
 │   ├── public/                   # manifest, icons, service worker, host redirects
 │   └── .env.example
+├── POSTGRES.md                   # database setup guide for the Pi
+├── scripts/doctor.mjs            # `npm run doctor` — diagnoses a broken setup
 ├── deploy/boozie-archive.service # systemd unit
 ├── ecosystem.config.cjs          # pm2 process definition (port 1981)
 └── README.md
@@ -654,6 +767,20 @@ Check the path and permissions: `sudo -u admin ls /home/admin/ssd/mediausb/music
 `VITE_API_BASE_URL` was set at build time and points somewhere unreachable (often `localhost:1981`,
 which means *the phone* when opened on a phone). Clear it, rebuild the frontend, restart. Or override
 it at runtime in **Settings**.
+
+**The server exits with `Cannot reach PostgreSQL …`.**
+Deliberate: booting without the database would serve the whole archive with no
+accounts and no invite checks. Fix `DATABASE_URL` in `backend/.env` (see
+[POSTGRES.md](POSTGRES.md)), or set `AUTH_ENABLED=false` to run without accounts.
+
+**I'm locked out of the admin panel.**
+`npm --prefix backend run admin -- yourname 'a-new-password'` creates or promotes
+an admin and resets its password.
+
+**Signing in works, then every request says "Sign in to browse".**
+The session cookie isn't coming back. Almost always a cross-origin frontend: set
+`COOKIE_SAMESITE=none`, `COOKIE_SECURE=true`, serve the API over HTTPS, and put
+the exact frontend origin in `CORS_ORIGINS` — `*` is not allowed with cookies.
 
 **The app looks stale after a deploy.**
 The service worker caches the app shell. **Settings → Clear offline cache & reload**, or on iOS

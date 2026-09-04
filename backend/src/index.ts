@@ -3,11 +3,16 @@ import path from 'node:path';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import compress from '@fastify/compress';
+import cookie from '@fastify/cookie';
 import fastifyStatic from '@fastify/static';
 
 import { config } from './config.js';
 import { library } from './lib/library.js';
+import { assertDatabaseReachable, closePool, runMigrations } from './db/pool.js';
+import { AuthError, pruneExpiredSessions, resolveSession } from './lib/auth.js';
 import { apiRoutes } from './routes/api.js';
+import { adminRoutes } from './routes/admin.js';
+import { authRoutes, loginThrottle } from './routes/auth.js';
 import { mediaRoutes } from './routes/media.js';
 
 /** Returns the first candidate directory that contains a built index.html. */
@@ -47,15 +52,92 @@ async function main() {
     encodings: ['br', 'gzip', 'deflate'],
   });
 
+  await app.register(cookie);
+
+  /**
+   * With cookie auth the browser will not accept `Access-Control-Allow-Origin: *`
+   * on a credentialed request, so `origin: true` reflects the caller's origin
+   * instead — same permissiveness, but a form browsers accept with credentials.
+   */
   const allowAnyOrigin = config.corsOrigins.includes('*');
   await app.register(cors, {
     origin: allowAnyOrigin ? true : config.corsOrigins,
+    credentials: true,
     methods: ['GET', 'HEAD', 'POST', 'OPTIONS'],
     // Browsers need these exposed for seeking and progress UI.
     exposedHeaders: ['Content-Length', 'Content-Range', 'Accept-Ranges', 'Content-Disposition'],
     maxAge: 86400,
   });
 
+  /** Turns AuthError into its intended status code instead of a generic 500. */
+  app.setErrorHandler((error: unknown, request, reply) => {
+    if (error instanceof AuthError) {
+      return reply.code(error.status).send({ error: error.message, code: error.code });
+    }
+    request.log.error({ err: error }, 'Request failed');
+    const statusCode = (error as { statusCode?: number }).statusCode;
+    const status = statusCode && statusCode >= 400 ? statusCode : 500;
+    return reply.code(status).send({
+      error:
+        status === 500
+          ? 'Something went wrong on the server.'
+          : ((error as Error).message ?? 'Request failed'),
+    });
+  });
+
+  /** Routes reachable without an account. Everything else needs one. */
+  const PUBLIC_PATHS = new Set(['/api/health', '/api/auth/context', '/api/auth/login', '/api/auth/register', '/api/auth/logout', '/api/auth/me']);
+
+  function isPublicPath(pathname: string): boolean {
+    return PUBLIC_PATHS.has(pathname) || pathname.startsWith('/api/auth/invite/');
+  }
+
+  if (config.authEnabled) {
+    app.addHook('onRequest', async (request, reply) => {
+      const token = request.cookies?.[config.cookieName];
+      request.user = token ? await resolveSession(token) : null;
+
+      const pathname = request.url.split('?')[0] ?? '';
+
+      /**
+       * CSRF: a cookie-authenticated state-changing request must come from an
+       * origin we serve. Same-origin browsers send no Origin header on
+       * same-site form posts, and our own client always sends JSON with an
+       * Origin, so requiring a *matching* Origin when one is present is enough
+       * without breaking curl or the media elements.
+       */
+      if (request.method !== 'GET' && request.method !== 'HEAD') {
+        const origin = request.headers.origin;
+        if (origin && !allowAnyOrigin && !config.corsOrigins.includes(origin)) {
+          return reply.code(403).send({ error: 'Cross-origin request blocked.' });
+        }
+      }
+
+      if (!pathname.startsWith('/api/')) return; // static assets and the SPA shell
+      if (isPublicPath(pathname)) return;
+      if (config.allowPublicBrowse && request.method === 'GET') return;
+
+      if (!request.user) {
+        return reply.code(401).send({ error: 'Sign in to browse the archive.', code: 'unauthenticated' });
+      }
+    });
+
+    // Admin-only surface.
+    app.addHook('onRequest', async (request, reply) => {
+      if (!request.url.startsWith('/api/admin/')) return;
+      if (request.user?.role !== 'admin') {
+        return reply.code(403).send({ error: 'Admins only.', code: 'forbidden' });
+      }
+    });
+  } else {
+    // Keeps `request.user` defined everywhere, so routes need no special case.
+    app.addHook('onRequest', async (request) => {
+      request.user = null;
+    });
+  }
+
+  await app.register(authRoutes, { prefix: '/api' });
+  if (config.authEnabled) await app.register(adminRoutes, { prefix: '/api' });
   await app.register(apiRoutes, { prefix: '/api' });
   await app.register(mediaRoutes, { prefix: '/api' });
 
@@ -137,6 +219,27 @@ async function main() {
   }
 
   await fs.mkdir(config.dataDir, { recursive: true });
+
+  if (config.authEnabled) {
+    try {
+      await assertDatabaseReachable();
+      await runMigrations(app.log);
+    } catch (error) {
+      // Fail closed: starting without the database would serve the whole
+      // archive with no accounts and no invite checks at all.
+      app.log.fatal(
+        `Cannot reach PostgreSQL at ${config.databaseUrl.replace(/:[^:@/]*@/, ':***@')}\n` +
+          `  ${(error as Error).message}\n` +
+          '  Set up the database (see POSTGRES.md), fix DATABASE_URL in backend/.env,\n' +
+          '  or set AUTH_ENABLED=false to run the archive without accounts.',
+      );
+      process.exit(1);
+    }
+    app.log.info('Accounts enabled — registration requires an invite code.');
+  } else {
+    app.log.warn('AUTH_ENABLED=false — the archive is open to anyone who can reach it.');
+  }
+
   const hadCache = await library.loadFromDisk(app.log);
 
   await app.listen({ host: config.host, port: config.port });
@@ -162,14 +265,32 @@ async function main() {
     timer.unref();
   }
 
+  let cleanupTimer: NodeJS.Timeout | null = null;
+  if (config.authEnabled) {
+    cleanupTimer = setInterval(
+      () => {
+        loginThrottle.prune();
+        pruneExpiredSessions().catch((error) =>
+          app.log.warn(`Session cleanup failed: ${(error as Error).message}`),
+        );
+      },
+      60 * 60_000,
+    );
+    cleanupTimer.unref();
+  }
+
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.on(signal, () => {
       app.log.info(`${signal} received, shutting down`);
       if (timer) clearInterval(timer);
-      app.close().then(
-        () => process.exit(0),
-        () => process.exit(1),
-      );
+      if (cleanupTimer) clearInterval(cleanupTimer);
+      app
+        .close()
+        .then(() => (config.authEnabled ? closePool() : undefined))
+        .then(
+          () => process.exit(0),
+          () => process.exit(1),
+        );
     });
   }
 }

@@ -93,3 +93,47 @@ export interface ArtistDetail {
 }
 
 export type SortKey = 'name' | 'recent' | 'tracks' | 'year' | 'duration' | 'random';
+
+// --- accounts, sessions and invites ----------------------------------------
+
+export type Role = 'user' | 'admin';
+
+export interface AccountUser {
+  id: string;
+  username: string;
+  role: Role;
+  disabled: boolean;
+  createdAt: string;
+  lastLoginAt: string | null;
+}
+
+export interface AdminAccountUser extends AccountUser {
+  /** The invite code this account signed up with, if any. */
+  inviteCode: string | null;
+  sessionCount: number;
+}
+
+export interface AuthContextInfo {
+  authEnabled: boolean;
+  /** True on a fresh install: the first account created becomes the admin. */
+  needsSetup: boolean;
+  allowPublicBrowse: boolean;
+  minPasswordLength?: number;
+}
+
+export type InviteStatus = 'active' | 'disabled' | 'expired' | 'exhausted';
+
+export interface Invite {
+  id: string;
+  code: string;
+  label: string | null;
+  createdAt: string;
+  createdBy: string | null;
+  /** null means it never expires. */
+  expiresAt: string | null;
+  /** null means unlimited uses. */
+  maxUses: number | null;
+  uses: number;
+  disabled: boolean;
+  status: InviteStatus;
+}

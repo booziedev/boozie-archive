@@ -50,6 +50,29 @@ export const siteTagline = (
   import.meta.env.VITE_SITE_TAGLINE ?? 'A personal, lossless-first music vault.'
 ).trim();
 
+/**
+ * True when the API lives on a different origin than the page.
+ *
+ * It matters for media: `<img>` and `<audio>` only send the session cookie
+ * cross-origin when the element opts in with crossorigin="use-credentials".
+ * Same-origin (the Pi serving both) needs no attribute at all — and setting one
+ * there would demand CORS headers that a same-origin response doesn't send.
+ */
+export function isCrossOriginApi(): boolean {
+  const base = getApiBaseUrl();
+  if (!base) return false;
+  try {
+    return new URL(base, window.location.href).origin !== window.location.origin;
+  } catch {
+    return false;
+  }
+}
+
+/** The crossorigin attribute media elements need, or undefined for same-origin. */
+export function mediaCrossOrigin(): 'use-credentials' | undefined {
+  return isCrossOriginApi() ? 'use-credentials' : undefined;
+}
+
 /** Absolute URL for an API path, e.g. apiUrl('/api/stats'). */
 export function apiUrl(path: string): string {
   const base = getApiBaseUrl();

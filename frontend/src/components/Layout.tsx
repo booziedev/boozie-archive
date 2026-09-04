@@ -4,8 +4,10 @@ import {
   Disc3,
   Heart,
   Home,
+  LogOut,
   Music2,
   Settings,
+  Shield,
   Users,
   Loader2,
 } from 'lucide-react';
@@ -13,6 +15,7 @@ import {
 import { Player } from './Player';
 import { SearchBar } from './SearchBar';
 import { useStats } from '../hooks/useLibrary';
+import { useAuth } from '../context/AuthContext';
 import { useFavorites } from '../context/FavoritesContext';
 import { formatBytes, formatNumber, formatRuntime } from '../lib/format';
 import { siteName } from '../lib/config';
@@ -29,6 +32,7 @@ const NAV = [
 export function Layout() {
   const { data: stats } = useStats();
   const { favorites } = useFavorites();
+  const { user, isAdmin, signOut } = useAuth();
   const location = useLocation();
 
   // Every navigation starts at the top of the page.
@@ -91,6 +95,43 @@ export function Layout() {
         </nav>
 
         <div className="space-y-3 px-6 pb-6">
+          {user && (
+            <div className="flex items-center gap-2 border-b border-white/5 pb-3">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent-500/20 text-[11px] font-bold uppercase text-accent-200">
+                {user.username.slice(0, 2)}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-xs font-medium text-zinc-300">{user.username}</span>
+                {isAdmin && (
+                  <span className="block text-[10px] uppercase tracking-wider text-accent-400">admin</span>
+                )}
+              </span>
+              <button
+                type="button"
+                onClick={() => void signOut()}
+                title="Sign out"
+                aria-label="Sign out"
+                className="icon-btn h-8 w-8"
+              >
+                <LogOut size={15} />
+              </button>
+            </div>
+          )}
+
+          {isAdmin && (
+            <NavLink
+              to="/admin"
+              className={({ isActive }) =>
+                `flex items-center gap-2 text-xs transition-colors ${
+                  isActive ? 'text-accent-300' : 'text-zinc-600 hover:text-zinc-300'
+                }`
+              }
+            >
+              <Shield size={14} />
+              Admin panel
+            </NavLink>
+          )}
+
           <NavLink
             to="/settings"
             className={({ isActive }) =>
@@ -133,6 +174,28 @@ export function Layout() {
               </span>
             </NavLink>
             <SearchBar className="max-w-xl flex-1" />
+
+            {user && (
+              <div className="flex items-center gap-0.5 lg:hidden">
+                {isAdmin && (
+                  <NavLink
+                    to="/admin"
+                    aria-label="Admin panel"
+                    className={({ isActive }) => `icon-btn h-9 w-9 ${isActive ? 'text-accent-300' : ''}`}
+                  >
+                    <Shield size={18} />
+                  </NavLink>
+                )}
+                <button
+                  type="button"
+                  onClick={() => void signOut()}
+                  aria-label="Sign out"
+                  className="icon-btn h-9 w-9"
+                >
+                  <LogOut size={18} />
+                </button>
+              </div>
+            )}
           </div>
         </header>
 
