@@ -38,8 +38,13 @@ sudo systemctl enable --now postgresql
 **Generate a password first** and keep it somewhere — you'll paste it twice:
 
 ```bash
-openssl rand -base64 24
+openssl rand -hex 24
 ```
+
+> Use `-hex`, not `-base64`. A password goes inside a URL later, and base64 can
+> produce `/` and `+`; a `/` breaks the connection string outright. Hex is
+> URL-safe by construction. If you prefer your own password, avoid
+> `/ % @ ? # [ ]`.
 
 Then create the role and database, substituting your password:
 
@@ -211,12 +216,49 @@ archive with no accounts and no invite checks. Fix `DATABASE_URL`, or set
 `AUTH_ENABLED=false` to run without accounts. The full error is in the log:
 `pm2 logs boozie-archive-api`.
 
-**`password authentication failed for user "boozie"`.**
-The password in `DATABASE_URL` doesn't match. Reset it:
+**`password authentication failed for user "boozie"`** — and pm2 restarts in a loop.
+
+Run the check first; it tells you which of the causes below it is:
 
 ```bash
-sudo -u postgres psql -c "ALTER ROLE boozie WITH PASSWORD 'new-password';"
+cd ~/boozie-archive && npm run doctor
 ```
+
+PostgreSQL reports a wrong password and a missing role with the *same* message,
+so the reliable fix is to set both from scratch. Pick a URL-safe password:
+
+```bash
+PW=$(openssl rand -hex 24); echo "$PW"
+
+# creates the role if it's missing…
+sudo -u postgres psql -c "CREATE ROLE boozie WITH LOGIN PASSWORD '$PW';" 2>/dev/null
+# …or updates it if it already exists
+sudo -u postgres psql -c "ALTER ROLE boozie WITH PASSWORD '$PW';"
+sudo -u postgres psql -c "CREATE DATABASE boozie_archive OWNER boozie;" 2>/dev/null
+```
+
+Put that exact value in `backend/.env`:
+
+```ini
+DATABASE_URL=postgres://boozie:PASTE_THE_PW_HERE@127.0.0.1:5432/boozie_archive
+```
+
+Verify the URL itself before restarting — if this works, the app will too:
+
+```bash
+psql "postgres://boozie:PASTE_THE_PW_HERE@127.0.0.1:5432/boozie_archive" -c '\conninfo'
+pm2 restart boozie-archive-api && npm run doctor
+```
+
+Other things that produce this exact error:
+
+- **A `/` or `%` in the password.** It changes where the URL thinks the password
+  ends. Regenerate with `openssl rand -hex 24`.
+- **Editing `.env` but not restarting.** The value is read once at startup.
+- **Two PostgreSQL clusters installed.** `pg_lsclusters` shows them; the role
+  you created may live in the one that isn't on port 5432.
+- **A stale password in a `PGPASSWORD` environment variable** overriding what
+  you think you're testing with `psql`.
 
 **`database "boozie_archive" does not exist`.**
 Step 2 didn't complete. Re-run the `CREATE DATABASE` line.

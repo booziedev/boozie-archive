@@ -230,8 +230,9 @@ async function main() {
       app.log.fatal(
         `Cannot reach PostgreSQL at ${config.databaseUrl.replace(/:[^:@/]*@/, ':***@')}\n` +
           `  ${(error as Error).message}\n` +
-          '  Set up the database (see POSTGRES.md), fix DATABASE_URL in backend/.env,\n' +
-          '  or set AUTH_ENABLED=false to run the archive without accounts.',
+          '  Diagnose it with:  npm run doctor      (from the repo root)\n' +
+          '  Setup guide:       POSTGRES.md\n' +
+          '  Or set AUTH_ENABLED=false in backend/.env to run without accounts.',
       );
       process.exit(1);
     }

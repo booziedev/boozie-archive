@@ -30,6 +30,15 @@ module.exports = {
       exec_mode: 'fork',
       autorestart: true,
       watch: false,
+      /**
+       * The server exits deliberately when PostgreSQL is unreachable, so a
+       * misconfigured DATABASE_URL would otherwise restart it once a second and
+       * bury the real error. Back off instead, and stop after enough failures
+       * in a row that it is clearly configuration rather than a blip.
+       */
+      exp_backoff_restart_delay: 2000,
+      min_uptime: 10000,
+      max_restarts: 10,
       // The cold scan of a large collection is memory-hungry but transient;
       // 900M leaves headroom on a 4 GB Pi 5 without masking a real leak.
       max_memory_restart: '900M',

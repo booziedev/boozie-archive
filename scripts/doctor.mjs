@@ -155,6 +155,78 @@ if (!authEnabled) {
     ok('DATABASE_URL set', redacted);
   }
 
+  // Characters that change the meaning of a URL cannot appear raw in a password.
+  // `/` and `%` break parsing outright; the rest silently truncate it.
+  const passwordMatch = /^[a-z]+:\/\/[^:/@]+:([^@]*)@/i.exec(url);
+  const rawPassword = passwordMatch?.[1] ?? '';
+  const risky = [...new Set([...rawPassword].filter((c) => '/%@?#[]'.includes(c)))];
+  if (risky.length > 0) {
+    bad(
+      `the password in DATABASE_URL contains ${risky.map((c) => `"${c}"`).join(', ')}, which URLs treat as syntax`,
+      'use a URL-safe password: sudo -u postgres psql -c "ALTER ROLE boozie WITH PASSWORD \'$(openssl rand -hex 24)\';" then put the same value in DATABASE_URL',
+    );
+  }
+
+  // Connect for real. This is the check that actually answers "why won't it
+  // start" — the server's own failure is the same connection with the same URL.
+  let pg = null;
+  try {
+    pg = (await import(path.join(repoRoot, 'backend', 'node_modules', 'pg', 'lib', 'index.js'))).default;
+  } catch {
+    warn('cannot test the connection', 'backend dependencies are not installed yet');
+  }
+
+  if (pg) {
+    const failure = await new Promise((resolve) => {
+      let pool;
+      try {
+        pool = new pg.Pool({ connectionString: url, connectionTimeoutMillis: 5000, max: 1 });
+      } catch (error) {
+        resolve(error);
+        return;
+      }
+      pool
+        .query('SELECT 1')
+        .then(() => resolve(null))
+        .catch(resolve)
+        .finally(() => pool.end().catch(() => undefined));
+    });
+
+    if (!failure) {
+      ok('connected to PostgreSQL with these credentials');
+    } else {
+      const code = failure.code ?? failure.name;
+      const fixes = {
+        // PostgreSQL reports a missing role and a wrong password identically,
+        // on purpose — so the fix has to cover both.
+        '28P01':
+          'the password is wrong, or that role does not exist. Set both from scratch:\n' +
+          '        sudo -u postgres psql -c "CREATE ROLE boozie WITH LOGIN PASSWORD \'a-new-password\';"  # if missing\n' +
+          '        sudo -u postgres psql -c "ALTER ROLE boozie WITH PASSWORD \'a-new-password\';"        # if it exists\n' +
+          '        then put exactly that password in DATABASE_URL and re-run this check',
+        // Role missing, or pg_hba.conf refuses this method.
+        '28000':
+          'the role does not exist or pg_hba.conf rejects it:\n' +
+          '        sudo -u postgres psql -c "CREATE ROLE boozie WITH LOGIN PASSWORD \'a-new-password\';"',
+        '3D000':
+          'the database does not exist:\n' +
+          '        sudo -u postgres psql -c "CREATE DATABASE boozie_archive OWNER boozie;"',
+        '42501':
+          'grant the schema to the role:\n' +
+          '        sudo -u postgres psql -d boozie_archive -c "ALTER DATABASE boozie_archive OWNER TO boozie; GRANT ALL ON SCHEMA public TO boozie;"',
+        ECONNREFUSED: 'PostgreSQL is not running or not listening there: sudo systemctl start postgresql',
+        ENOTFOUND: 'the host in DATABASE_URL does not resolve — use 127.0.0.1 for a local server',
+        ETIMEDOUT: 'the host is unreachable — check the host and port in DATABASE_URL',
+        ERR_INVALID_URL: 'DATABASE_URL is not a valid URL — a "/" or "%" in the password will do this',
+        URIError: 'DATABASE_URL contains an invalid percent-escape — avoid "%" in the password',
+      };
+      bad(
+        `PostgreSQL refused the connection (${code}): ${failure.message}`,
+        fixes[code] ?? 'see POSTGRES.md',
+      );
+    }
+  }
+
   // Ask the running server rather than opening our own connection: it is the
   // process whose credentials actually matter.
   const context = await new Promise((resolve) => {
