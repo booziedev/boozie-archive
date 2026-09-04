@@ -22,7 +22,7 @@ Netlify, and reaches the Pi over a free HTTPS tunnel.
 3. [Backend on the Raspberry Pi](#backend-on-the-raspberry-pi)
 4. [Running it as a service](#running-it-as-a-service)
 5. [Exposing it publicly for free](#exposing-it-publicly-for-free)
-6. [Deploying the frontend for free](#deploying-the-frontend-for-free)
+6. [Serving the frontend](#serving-the-frontend)
 7. [Installing on iOS](#installing-on-ios)
 8. [How metadata scanning works](#how-metadata-scanning-works)
 9. [Environment variables](#environment-variables)
@@ -33,6 +33,26 @@ Netlify, and reaches the Pi over a free HTTPS tunnel.
 ---
 
 ## Architecture
+
+There are two ways to run it. **Both are free** — pick one.
+
+**A. One box, one port (simplest).** The Pi serves the web app *and* the API from the same
+process, so there is one tunnel, one URL and no CORS to think about. This is the default: if
+`frontend/dist` exists, the backend serves it at `/`.
+
+```
+  iPhone / laptop                              Raspberry Pi 5
+ ┌────────────────┐                       ┌──────────────────────────────┐
+ │  Safari / PWA  │ ──── HTTPS ─────────▶ │  Fastify  :1981              │
+ │                │  (cloudflared /       │  ├─ /            web app     │
+ │                │   Tailscale Funnel)   │  ├─ /api/…       metadata    │
+ │                │                       │  ├─ /api/stream  audio       │
+ └────────────────┘                       │  └─ /home/admin/ssd/…/music/ │
+                                          └──────────────────────────────┘
+```
+
+**B. Static host + Pi API.** The frontend goes on Cloudflare Pages / Vercel / Netlify and calls the
+Pi across origins. Slightly faster page loads worldwide, one more thing to configure.
 
 ```
   iPhone / laptop                Cloudflare Pages              Raspberry Pi 5
@@ -75,6 +95,9 @@ npm run dev:frontend         # http://localhost:5173
 The dev server proxies `/api` to `http://localhost:1981`, so `VITE_API_BASE_URL` can be left empty
 while developing locally.
 
+For a production-like check on one port, build instead of running the dev server — `npm run build`,
+then `npm start` — and open `http://localhost:1981/`, where the backend serves the built app itself.
+
 Verify the backend on its own:
 
 ```bash
@@ -102,9 +125,20 @@ node -v      # v20.x or newer
 ```bash
 cd ~
 git clone https://github.com/booziedev/boozie-archive.git
-cd boozie-archive/backend
-npm install                  # installs sharp too, for cover thumbnails
-npm run build                # compiles TypeScript to dist/
+cd boozie-archive
+npm run install:all          # backend + frontend dependencies
+npm run build                # compiles the backend AND builds the web app
+```
+
+`npm run build` produces `backend/dist/` (the server) and `frontend/dist/` (the web app). The server
+serves that web app automatically, so **`http://<pi>:1981/` gives you the full interface**, not just
+JSON. If you only want the API — because you're hosting the frontend on Cloudflare Pages — skip the
+frontend build or set `SERVE_FRONTEND=false`.
+
+To build only the backend:
+
+```bash
+npm --prefix backend install && npm --prefix backend run build
 ```
 
 > `sharp` is an **optional** dependency. If it fails to install (no prebuilt binary for your
@@ -146,6 +180,9 @@ npm run scan
 A cold scan reads tags from every file: expect roughly **10–25 minutes for 100 GB** on a Pi 5 with an
 SSD. Every later scan only re-reads files whose size or mtime changed, so restarts take seconds.
 The index is written to `$DATA_DIR/library-index.json`, cover thumbnails to `$DATA_DIR/covers/`.
+
+Then open **`http://<pi-address>:1981/`** in a browser on the same network — you should get the
+archive UI. `http://<pi-address>:1981/api/stats` still returns the raw JSON.
 
 Trigger a rescan later without restarting:
 
@@ -301,13 +338,40 @@ CORS_ORIGINS=https://boozie-archive.pages.dev,http://localhost:5173
 
 ---
 
-## Deploying the frontend for free
+## Serving the frontend
+
+### Option A — from the Pi itself (default, nothing to configure)
+
+Build it once and the backend serves it:
+
+```bash
+cd ~/boozie-archive
+npm --prefix frontend install
+npm --prefix frontend run build       # writes frontend/dist/
+pm2 restart boozie-archive-api        # or: sudo systemctl restart boozie-archive
+```
+
+Open `http://<pi-address>:1981/`. Deep links (`/albums/al_xxx`) survive a hard refresh, hashed assets
+are served immutable, and `index.html` and `sw.js` are sent `no-cache` so updates land immediately.
+
+Leave `VITE_API_BASE_URL` **empty** for this mode — the app then calls `/api` on its own origin, so
+there is no CORS involved and the same tunnel covers both. After you point cloudflared or Tailscale
+Funnel at port 1981, that one public URL *is* the app.
+
+Rebuild the frontend after every `git pull`:
+
+```bash
+git pull && npm run build && pm2 restart boozie-archive-api
+```
+
+### Option B — a free static host
 
 The build output is plain static files. Set `VITE_API_BASE_URL` to your public API URL **at build
 time**, and configure the SPA fallback so deep links like `/albums/al_xxx` don't 404 (the included
-`public/_redirects`, `vercel.json` and `netlify.toml` already do this).
+`public/_redirects`, `vercel.json` and `netlify.toml` already do this). Set `SERVE_FRONTEND=false` on
+the Pi if you don't want it serving a copy as well.
 
-### Cloudflare Pages
+#### Cloudflare Pages
 
 1. Push this repo to GitHub.
 2. Cloudflare dashboard → **Workers & Pages → Create → Pages → Connect to Git**.
@@ -320,17 +384,17 @@ time**, and configure the SPA fallback so deep links like `/albums/al_xxx` don't
    (and optionally `VITE_SITE_NAME`, `VITE_SITE_TAGLINE`).
 5. Deploy. You get `https://<project>.pages.dev` for free.
 
-### Vercel
+#### Vercel
 
 Import the repo, set **Root Directory** to `frontend`, add the same environment variables. The
 included `vercel.json` handles the build and the SPA rewrites.
 
-### Netlify
+#### Netlify
 
 Import the repo; `frontend/netlify.toml` sets the build command, publish directory and SPA redirect.
 Add `VITE_API_BASE_URL` under **Site settings → Environment variables**.
 
-### Manual / self-hosted
+#### Manual / self-hosted
 
 ```bash
 cd frontend
@@ -426,13 +490,15 @@ tags are always preferred.
 | `ADMIN_TOKEN` | *(empty)* | Bearer token for `POST /api/rescan`. Empty disables the route. |
 | `COVER_SIZES` | `128,320,640` | Thumbnail sizes generated on demand. |
 | `FOLLOW_SYMLINKS` | `false` | Follow symlinks while walking (loop-guarded). |
+| `SERVE_FRONTEND` | `true` | Also serve `frontend/dist` at `/` when it exists. |
+| `FRONTEND_DIST` | `../frontend/dist` | Where the built web app lives (relative to the working directory). |
 | `LOG_LEVEL` | `info` | `fatal`…`trace`. |
 
 ### Frontend (`frontend/.env`, build time)
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `VITE_API_BASE_URL` | *(empty → same origin)* | Base URL of the backend, e.g. `https://music-api.example.com`. |
+| `VITE_API_BASE_URL` | *(empty → same origin)* | Leave **empty** when the Pi serves the app (Option A). Set it only for a separate static host, e.g. `https://music-api.example.com`. |
 | `VITE_SITE_NAME` | `BOOZIE ARCHIVE` | Wordmark in the header and hero. |
 | `VITE_SITE_TAGLINE` | `A personal, lossless-first music vault.` | Line under the hero heading. |
 
@@ -467,6 +533,10 @@ List responses are `{ items, total, limit, offset }`.
 
 Every filesystem read is checked against `MUSIC_ROOT` before it happens, so no request can escape the
 collection directory.
+
+Anything outside `/api/*` is the web app: known files come from `frontend/dist`, and every other GET
+falls back to `index.html` so client-side routes work on a hard refresh. Unknown `/api/*` paths keep
+returning JSON 404s.
 
 ---
 
@@ -509,6 +579,11 @@ boozie-archive/
 
 ## Troubleshooting
 
+**I open the Pi's address and get JSON (`{"name":"boozie-archive-api"…}`) instead of the app.**
+The web app hasn't been built. On the Pi: `npm --prefix frontend install && npm --prefix frontend run
+build`, then restart (`pm2 restart boozie-archive-api`). The JSON reply's `frontend` field names the
+directory that was checked. The server logs `Serving the web app from …` at startup when it finds it.
+
 **The frontend shows “Could not reach the archive server”.**
 Check `curl https://<your-api-url>/api/health` from your phone's network. If that works but the app
 doesn't, it's CORS: set `CORS_ORIGINS` to include the frontend origin (or `*`) and restart.
@@ -536,6 +611,11 @@ Check the path and permissions: `sudo -u admin ls /home/admin/ssd/mediausb/music
 
 **Rescan returns 404.**
 `ADMIN_TOKEN` is empty, which disables the route by design. Set one and restart.
+
+**The app loads but every request fails, and it's hosted on the Pi.**
+`VITE_API_BASE_URL` was set at build time and points somewhere unreachable (often `localhost:1981`,
+which means *the phone* when opened on a phone). Clear it, rebuild the frontend, restart. Or override
+it at runtime in **Settings**.
 
 **The app looks stale after a deploy.**
 The service worker caches the app shell. **Settings → Clear offline cache & reload**, or on iOS

@@ -1,7 +1,11 @@
 /**
  * pm2 process definition for the boozie-archive backend.
  *
- *   npm --prefix backend run build
+ * This one process serves both the API and — when `frontend/dist` exists — the
+ * web app itself, so `http://<pi>:1981/` is the whole application. Run the root
+ * `npm run build` (not just the backend one) to get the UI.
+ *
+ *   npm run build                  # backend + frontend
  *   pm2 start ecosystem.config.cjs
  *   pm2 save && pm2 startup      # survive reboots
  *   pm2 logs boozie-archive-api

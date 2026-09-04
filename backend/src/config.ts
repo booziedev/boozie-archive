@@ -68,6 +68,18 @@ export const config = {
   /** Follow symlinks while walking the collection. */
   followSymlinks: bool('FOLLOW_SYMLINKS', false),
 
+  /**
+   * Optional path to the frontend's built `dist/` folder. When it exists the
+   * server also serves the web app, so the Pi needs one process, one port and
+   * one tunnel — and the browser talks to `/api` on its own origin, which
+   * sidesteps CORS entirely.
+   *
+   * The default is resolved from the working directory (`backend/` under both
+   * pm2 and the systemd unit). Set SERVE_FRONTEND=false to disable.
+   */
+  frontendDist: path.resolve(str('FRONTEND_DIST', path.join(process.cwd(), '..', 'frontend', 'dist'))),
+  serveFrontend: bool('SERVE_FRONTEND', true),
+
   logLevel: str('LOG_LEVEL', 'info'),
 } as const;
 

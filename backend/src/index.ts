@@ -1,7 +1,9 @@
 import fs from 'node:fs/promises';
+import path from 'node:path';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import compress from '@fastify/compress';
+import fastifyStatic from '@fastify/static';
 
 import { config } from './config.js';
 import { library } from './lib/library.js';
@@ -45,11 +47,58 @@ async function main() {
   await app.register(apiRoutes, { prefix: '/api' });
   await app.register(mediaRoutes, { prefix: '/api' });
 
-  app.get('/', async () => ({
-    name: 'boozie-archive-api',
-    docs: '/api/health',
-    tracks: library.snapshot.tracks.length,
-  }));
+  /**
+   * Serve the built frontend from the same process when it is present, so the
+   * whole app lives behind a single port and a single tunnel. Deploying the
+   * frontend to Cloudflare Pages instead still works: just don't build it here
+   * (or set SERVE_FRONTEND=false) and the server stays API-only.
+   */
+  const frontendReady =
+    config.serveFrontend &&
+    (await fs
+      .stat(path.join(config.frontendDist, 'index.html'))
+      .then((stat) => stat.isFile())
+      .catch(() => false));
+
+  if (frontendReady) {
+    await app.register(fastifyStatic, {
+      root: config.frontendDist,
+      // We set Cache-Control ourselves below; the plugin's default would
+      // otherwise overwrite it with `public, max-age=0` for every file.
+      cacheControl: false,
+      // Hashed assets never change; the shell and the worker must not be pinned.
+      setHeaders(res, filePath) {
+        if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        } else {
+          res.setHeader('Cache-Control', 'no-cache');
+        }
+      },
+    });
+
+    /**
+     * SPA fallback: a hard refresh on /albums/al_xxx has to return index.html.
+     * Unknown /api paths keep returning JSON 404s so the client can tell a
+     * missing record from a missing page.
+     */
+    app.setNotFoundHandler((request, reply) => {
+      if (request.method !== 'GET' || request.url.startsWith('/api/')) {
+        return reply.code(404).send({ error: 'Not found' });
+      }
+      return reply.header('Cache-Control', 'no-cache').sendFile('index.html');
+    });
+
+    app.log.info(`Serving the web app from ${config.frontendDist}`);
+  } else {
+    app.get('/', async () => ({
+      name: 'boozie-archive-api',
+      docs: '/api/health',
+      tracks: library.snapshot.tracks.length,
+      frontend: config.serveFrontend
+        ? `not built — run "npm --prefix frontend install && npm --prefix frontend run build", or set FRONTEND_DIST (looked in ${config.frontendDist})`
+        : 'disabled (SERVE_FRONTEND=false)',
+    }));
+  }
 
   // --- library bootstrap -------------------------------------------------
 
