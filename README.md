@@ -28,7 +28,7 @@ Netlify, and reaches the Pi over a free HTTPS tunnel.
 9. [Environment variables](#environment-variables)
 10. [API reference](#api-reference)
 11. [Project structure](#project-structure)
-12. [Troubleshooting](#troubleshooting)
+12. [Troubleshooting](#troubleshooting) — start with `npm run doctor`
 
 ---
 
@@ -97,6 +97,12 @@ while developing locally.
 
 For a production-like check on one port, build instead of running the dev server — `npm run build`,
 then `npm start` — and open `http://localhost:1981/`, where the backend serves the built app itself.
+
+Check the whole setup at any time:
+
+```bash
+npm run doctor      # toolchain, builds, config, music root, and what port 1981 is actually serving
+```
 
 Verify the backend on its own:
 
@@ -346,12 +352,21 @@ Build it once and the backend serves it:
 
 ```bash
 cd ~/boozie-archive
-npm --prefix frontend install
-npm --prefix frontend run build       # writes frontend/dist/
+npm run setup                         # installs both packages, builds backend + frontend
 pm2 restart boozie-archive-api        # or: sudo systemctl restart boozie-archive
+npm run doctor                        # confirms the app (not just the API) is being served
 ```
 
-Open `http://<pi-address>:1981/`. Deep links (`/albums/al_xxx`) survive a hard refresh, hashed assets
+The web app is found relative to the server's own files, so it does not matter which directory pm2 or
+systemd started the process from. `npm run doctor` checks every step and prints the exact fix for
+whatever is missing.
+
+Open `http://<pi-address>:1981/` — from any device on your LAN or Tailscale network. No tunnel is
+needed for this; cloudflared or Funnel is only for making it public later.
+
+If you get **JSON instead of the app**, the frontend simply hasn't been built — the server logs a
+loud error at startup listing the directories it checked, the root JSON repeats it, and
+`npm run doctor` names the fix. Deep links (`/albums/al_xxx`) survive a hard refresh, hashed assets
 are served immutable, and `index.html` and `sw.js` are sent `no-cache` so updates land immediately.
 
 Leave `VITE_API_BASE_URL` **empty** for this mode — the app then calls `/api` on its own origin, so
@@ -579,10 +594,33 @@ boozie-archive/
 
 ## Troubleshooting
 
+**Anything at all — start here.**
+
+```bash
+cd ~/boozie-archive && npm run doctor
+```
+
+It checks the Node version, both builds, the baked-in API URL, `MUSIC_ROOT`, the data directory and
+what the running server is actually serving on its port, then prints the command that fixes whatever
+is wrong.
+
 **I open the Pi's address and get JSON (`{"name":"boozie-archive-api"…}`) instead of the app.**
-The web app hasn't been built. On the Pi: `npm --prefix frontend install && npm --prefix frontend run
-build`, then restart (`pm2 restart boozie-archive-api`). The JSON reply's `frontend` field names the
-directory that was checked. The server logs `Serving the web app from …` at startup when it finds it.
+The frontend build is missing. `npm run setup` in the repo root, then `pm2 restart
+boozie-archive-api`. The JSON's `checked` array lists the directories the running server looked in;
+if your build lives somewhere else, set `FRONTEND_DIST` in `backend/.env`. On startup the server logs
+either `Serving the web app from …` or a loud error naming the same directories.
+
+**`npm --prefix frontend install` or the Vite build fails on the Pi.**
+Usually npm's optional-dependency bug on arm64 — the error mentions
+`@rollup/rollup-linux-arm64-gnu`. Clear and reinstall:
+
+```bash
+rm -rf frontend/node_modules frontend/package-lock.json
+npm --prefix frontend install
+```
+
+If the build is killed for memory on a 2 GB Pi, give Node more headroom:
+`NODE_OPTIONS=--max-old-space-size=1536 npm --prefix frontend run build`.
 
 **The frontend shows “Could not reach the archive server”.**
 Check `curl https://<your-api-url>/api/health` from your phone's network. If that works but the app

@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import path from 'node:path';
 import os from 'node:os';
+import { fileURLToPath } from 'node:url';
 
 function str(name: string, fallback: string): string {
   const v = process.env[name];
@@ -30,6 +31,29 @@ function list(name: string, fallback: string[]): string[] {
 }
 
 const dataDir = path.resolve(str('DATA_DIR', path.join(process.cwd(), 'data')));
+
+/**
+ * `import.meta.url` points at backend/src/config.ts in development and
+ * backend/dist/config.js in production — one level below the backend root
+ * either way.
+ */
+const backendRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const repoRoot = path.resolve(backendRoot, '..');
+
+const FRONTEND_DIST_CANDIDATES: string[] = (() => {
+  const explicit = str('FRONTEND_DIST', '');
+  if (explicit) return [path.resolve(explicit)];
+  return [
+    // Normal checkout: <repo>/frontend/dist next to <repo>/backend.
+    path.join(repoRoot, 'frontend', 'dist'),
+    // A build copied in beside the server.
+    path.join(backendRoot, 'frontend', 'dist'),
+    path.join(backendRoot, 'public'),
+    // Fall back to the working directory for unusual layouts.
+    path.join(process.cwd(), '..', 'frontend', 'dist'),
+    path.join(process.cwd(), 'frontend', 'dist'),
+  ].filter((value, index, all) => all.indexOf(value) === index);
+})();
 
 export const config = {
   /** Absolute path to the root of the music collection. */
@@ -69,15 +93,18 @@ export const config = {
   followSymlinks: bool('FOLLOW_SYMLINKS', false),
 
   /**
-   * Optional path to the frontend's built `dist/` folder. When it exists the
-   * server also serves the web app, so the Pi needs one process, one port and
-   * one tunnel — and the browser talks to `/api` on its own origin, which
+   * Where to find the frontend's built `dist/` folder. When one of these exists
+   * the server also serves the web app, so the Pi needs one process, one port
+   * and one tunnel — and the browser talks to `/api` on its own origin, which
    * sidesteps CORS entirely.
    *
-   * The default is resolved from the working directory (`backend/` under both
-   * pm2 and the systemd unit). Set SERVE_FRONTEND=false to disable.
+   * Candidates are derived from this file's own location first, so the lookup
+   * works no matter which directory the process was started from (`pm2
+   * resurrect`, a systemd unit with a different WorkingDirectory, or
+   * `node /path/to/backend/dist/index.js` from anywhere all behave the same).
+   * Set FRONTEND_DIST to pin it explicitly, or SERVE_FRONTEND=false to disable.
    */
-  frontendDist: path.resolve(str('FRONTEND_DIST', path.join(process.cwd(), '..', 'frontend', 'dist'))),
+  frontendDistCandidates: FRONTEND_DIST_CANDIDATES,
   serveFrontend: bool('SERVE_FRONTEND', true),
 
   logLevel: str('LOG_LEVEL', 'info'),

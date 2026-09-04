@@ -10,6 +10,18 @@ import { library } from './lib/library.js';
 import { apiRoutes } from './routes/api.js';
 import { mediaRoutes } from './routes/media.js';
 
+/** Returns the first candidate directory that contains a built index.html. */
+async function findFrontendDist(): Promise<string | null> {
+  for (const dir of config.frontendDistCandidates) {
+    const ok = await fs
+      .stat(path.join(dir, 'index.html'))
+      .then((stat) => stat.isFile())
+      .catch(() => false);
+    if (ok) return dir;
+  }
+  return null;
+}
+
 async function main() {
   const app = Fastify({
     logger: {
@@ -53,16 +65,11 @@ async function main() {
    * frontend to Cloudflare Pages instead still works: just don't build it here
    * (or set SERVE_FRONTEND=false) and the server stays API-only.
    */
-  const frontendReady =
-    config.serveFrontend &&
-    (await fs
-      .stat(path.join(config.frontendDist, 'index.html'))
-      .then((stat) => stat.isFile())
-      .catch(() => false));
+  const frontendDist = config.serveFrontend ? await findFrontendDist() : null;
 
-  if (frontendReady) {
+  if (frontendDist) {
     await app.register(fastifyStatic, {
-      root: config.frontendDist,
+      root: frontendDist,
       // We set Cache-Control ourselves below; the plugin's default would
       // otherwise overwrite it with `public, max-age=0` for every file.
       cacheControl: false,
@@ -88,15 +95,32 @@ async function main() {
       return reply.header('Cache-Control', 'no-cache').sendFile('index.html');
     });
 
-    app.log.info(`Serving the web app from ${config.frontendDist}`);
+    app.log.info(`Serving the web app from ${frontendDist}`);
+  } else if (config.serveFrontend) {
+    // Loud, actionable: this is the difference between "I get the app" and
+    // "I get JSON", and the reason is always one of these two.
+    app.log.error(
+      'The web app is NOT being served — no build found. Run this in the repo root:\n' +
+        '    npm run setup     (installs everything and builds backend + frontend)\n' +
+        '  then restart the server. Directories checked:\n' +
+        config.frontendDistCandidates.map((dir) => `    - ${dir}`).join('\n'),
+    );
+
+    app.get('/', async () => ({
+      name: 'boozie-archive-api',
+      docs: '/api/health',
+      tracks: library.snapshot.tracks.length,
+      frontend:
+        'not found — run "npm run setup" in the repo root, then restart. ' +
+        'Set FRONTEND_DIST to point at the build explicitly.',
+      checked: config.frontendDistCandidates,
+    }));
   } else {
     app.get('/', async () => ({
       name: 'boozie-archive-api',
       docs: '/api/health',
       tracks: library.snapshot.tracks.length,
-      frontend: config.serveFrontend
-        ? `not built — run "npm --prefix frontend install && npm --prefix frontend run build", or set FRONTEND_DIST (looked in ${config.frontendDist})`
-        : 'disabled (SERVE_FRONTEND=false)',
+      frontend: 'disabled (SERVE_FRONTEND=false)',
     }));
   }
 
