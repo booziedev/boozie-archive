@@ -8,6 +8,7 @@ import { ListeningNow } from '../components/ListeningNow';
 import { PageHeader, SectionHeader } from '../components/PageHeader';
 import { EmptyState, ErrorState } from '../components/states';
 import { social } from '../lib/api';
+import { usePresence } from '../context/PresenceContext';
 import { useDebounced } from '../hooks/useDebounced';
 import type { PublicProfile } from '../lib/types';
 
@@ -18,13 +19,10 @@ export function FriendsPage() {
   const debounced = useDebounced(query, 300);
   const [error, setError] = useState<string | null>(null);
 
-  const friendsQuery = useQuery({
-    queryKey: ['friends'],
-    queryFn: social.friends,
-    // Rows carry each friend's current track, so this is also the status poll.
-    refetchInterval: 15_000,
-    refetchIntervalInBackground: false,
-  });
+  // Statuses come from the shared presence poll rather than this query, so a
+  // friend's track changes here the moment it changes anywhere else.
+  const { statusOf } = usePresence();
+  const friendsQuery = useQuery({ queryKey: ['friends'], queryFn: social.friends });
   const searchQuery = useQuery({
     queryKey: ['users', 'search', debounced],
     queryFn: () => social.searchUsers(debounced),
@@ -65,8 +63,8 @@ export function FriendsPage() {
             <span className="block truncate text-sm font-medium text-zinc-100">
               {profile.displayName || profile.username}
             </span>
-            {profile.listeningNow ? (
-              <ListeningNow now={profile.listeningNow} compact />
+            {statusOf(profile.id) ? (
+              <ListeningNow now={statusOf(profile.id)} compact />
             ) : (
               <span className="block truncate text-xs text-zinc-600">@{profile.username}</span>
             )}

@@ -7,7 +7,7 @@ import { useAuth } from '../context/AuthContext';
 import type { PublicProfile } from '../lib/types';
 
 interface AccountMenuProps {
-  profile: Pick<PublicProfile, 'id' | 'username' | 'displayName' | 'avatarUrl' | 'accentColor'> | null;
+  profile: Pick<PublicProfile, 'id' | 'username' | 'displayName' | 'avatarUrl'> | null;
   badges: { messages: number; friendRequests: number };
 }
 
@@ -48,7 +48,6 @@ export function AccountMenu({ profile, badges }: AccountMenuProps) {
     username: user.username,
     displayName: null,
     avatarUrl: null,
-    accentColor: null,
   };
 
   const totalBadges = badges.messages + badges.friendRequests;

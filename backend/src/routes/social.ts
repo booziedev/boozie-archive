@@ -27,7 +27,7 @@ import {
   unreadCount,
   updateProfile,
 } from '../lib/social.js';
-import { canListenAlong, friendStatuses, statusFor } from '../lib/presence.js';
+import { canListenAlong, statusFor, visibleStatuses } from '../lib/presence.js';
 
 /**
  * Friends, profiles and direct messages.
@@ -143,7 +143,7 @@ export const socialRoutes: FastifyPluginAsync = async (app: FastifyInstance) => 
     const [friends, requests, statuses] = await Promise.all([
       listFriends(request.user!.id),
       listFriendRequests(request.user!.id),
-      friendStatuses(request.user!.id),
+      visibleStatuses(request.user!.id),
     ]);
     return {
       friends: friends.map((friend) => ({ ...friend, listeningNow: statuses[friend.id] ?? null })),
@@ -187,7 +187,7 @@ export const socialRoutes: FastifyPluginAsync = async (app: FastifyInstance) => 
   app.get('/dm/threads', async (request) => {
     const [threads, statuses] = await Promise.all([
       listThreads(request.user!.id),
-      friendStatuses(request.user!.id),
+      visibleStatuses(request.user!.id),
     ]);
     return {
       threads: threads.map((thread) => ({

@@ -6,7 +6,6 @@ import {
   Check,
   Loader2,
   MessageSquare,
-  Palette,
   Radio,
   UserMinus,
   UserPlus,
@@ -22,13 +21,11 @@ import { usePresence } from '../context/PresenceContext';
 import { formatDate } from '../lib/format';
 import type { PublicProfile } from '../lib/types';
 
-const ACCENTS = ['#7c5cff', '#22d3ee', '#34d399', '#f59e0b', '#f43f5e', '#a855f7', '#38bdf8', '#e2e8f0'];
-
 /**
  * Someone's profile. Viewing your own turns it into the editor: display name,
- * bio, accent colour, and a profile picture uploaded by clicking the avatar —
- * animated GIFs included. The server decides the format from the file's own
- * magic bytes, so a renamed script can't get in.
+ * bio, and a profile picture uploaded by clicking the avatar — animated GIFs
+ * included. The server decides the format from the file's own magic bytes, so a
+ * renamed script can't get in.
  */
 export function ProfilePage() {
   const { username } = useParams<{ username?: string }>();
@@ -40,9 +37,9 @@ export function ProfilePage() {
   const profileQuery = useQuery({
     queryKey: isSelf ? ['profile', 'me'] : ['profile', username],
     queryFn: () => (isSelf ? social.myProfile() : social.profile(username!)),
-    // Someone else's page carries their current track, so it is worth keeping
-    // fresh while it is open. Your own has nothing that changes behind you.
-    refetchInterval: isSelf ? false : 15_000,
+    // The track shown here comes from the shared presence poll; this query only
+    // needs to catch slower things, like them turning listening-along off.
+    refetchInterval: isSelf ? false : 30_000,
     refetchIntervalInBackground: false,
   });
 
@@ -83,7 +80,6 @@ function ProfileEditor({ profile, onSaved }: { profile: PublicProfile; onSaved: 
   const [displayName, setDisplayName] = useState(profile.displayName ?? '');
   const [bio, setBio] = useState(profile.bio ?? '');
   const [avatarUrl, setAvatarUrl] = useState(profile.avatarUrl);
-  const [accentColor, setAccentColor] = useState(profile.accentColor ?? ACCENTS[0]!);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -140,7 +136,6 @@ function ProfileEditor({ profile, onSaved }: { profile: PublicProfile; onSaved: 
         displayName: displayName.trim() || null,
         bio: bio.trim() || null,
         avatarUrl,
-        accentColor,
       }),
     onSuccess: () => {
       setError(null);
@@ -151,7 +146,7 @@ function ProfileEditor({ profile, onSaved }: { profile: PublicProfile; onSaved: 
       setError(saveError instanceof Error ? saveError.message : 'Could not save your profile.'),
   });
 
-  const preview: PublicProfile = { ...profile, displayName, avatarUrl, accentColor, bio };
+  const preview: PublicProfile = { ...profile, displayName, avatarUrl, bio };
 
   return (
     <div className="max-w-2xl space-y-6">
@@ -249,28 +244,6 @@ function ProfileEditor({ profile, onSaved }: { profile: PublicProfile; onSaved: 
           />
         </label>
 
-        {/* ------------------------------ accent ------------------------- */}
-        <div>
-          <span className="mb-2 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-600">
-            <Palette size={11} />
-            Accent colour
-          </span>
-          <div className="flex flex-wrap gap-2">
-            {ACCENTS.map((color) => (
-              <button
-                key={color}
-                type="button"
-                onClick={() => setAccentColor(color)}
-                aria-label={`Accent ${color}`}
-                className={`h-8 w-8 rounded-full transition-transform hover:scale-110 ${
-                  accentColor === color ? 'ring-2 ring-white ring-offset-2 ring-offset-ink-850' : ''
-                }`}
-                style={{ background: color }}
-              />
-            ))}
-          </div>
-        </div>
-
         {error && (
           <p className="rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-300">
             {error}
@@ -301,7 +274,10 @@ function ProfileEditor({ profile, onSaved }: { profile: PublicProfile; onSaved: 
 
 function OtherProfile({ profile }: { profile: PublicProfile }) {
   const queryClient = useQueryClient();
+  const { statusOf } = usePresence();
   const [error, setError] = useState<string | null>(null);
+  // Live, so their track updates as they skip rather than on the next refetch.
+  const listeningNow = statusOf(profile.id) ?? profile.listeningNow ?? null;
 
   const refresh = () =>
     Promise.all([
@@ -320,19 +296,7 @@ function OtherProfile({ profile }: { profile: PublicProfile }) {
 
   return (
     <div className="max-w-2xl space-y-6">
-      <section
-        className="surface relative overflow-hidden p-6"
-        style={
-          profile.accentColor
-            ? { boxShadow: `inset 0 1px 0 0 ${profile.accentColor}33` }
-            : undefined
-        }
-      >
-        <div
-          aria-hidden
-          className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full blur-3xl"
-          style={{ background: `${profile.accentColor ?? '#7c5cff'}22` }}
-        />
+      <section className="surface relative overflow-hidden p-6">
         <div className="relative flex flex-wrap items-center gap-5">
           <Avatar profile={profile} size={88} />
           <div className="min-w-0 flex-1">
@@ -340,8 +304,8 @@ function OtherProfile({ profile }: { profile: PublicProfile }) {
               {profile.displayName || profile.username}
             </h1>
             <p className="truncate text-sm text-zinc-500">@{profile.username}</p>
-            {profile.listeningNow ? (
-              <ListeningNow now={profile.listeningNow} className="mt-1.5" />
+            {listeningNow ? (
+              <ListeningNow now={listeningNow} className="mt-1.5" />
             ) : (
               <p className="mt-1 text-xs text-zinc-600">Joined {formatDate(profile.createdAt)}</p>
             )}
@@ -408,13 +372,14 @@ function OtherProfile({ profile }: { profile: PublicProfile }) {
  * otherwise, and a button that always fails is worse than no button.
  */
 function ListenAlongButton({ profile }: { profile: PublicProfile }) {
-  const { party, isFollowing, listenAlongWith, leaveParty } = usePresence();
+  const { party, isFollowing, listenAlongWith, leaveParty, statusOf } = usePresence();
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
 
   const followingThem = isFollowing && party?.hostId === profile.id;
 
-  if (!profile.canListenAlong || !profile.listeningNow) return null;
+  // Both live: the button appears the moment they start playing something.
+  if (!profile.canListenAlong || !statusOf(profile.id)) return null;
 
   async function start() {
     setFailure(null);

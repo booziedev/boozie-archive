@@ -291,7 +291,14 @@ export const presence = {
     jsonRequest<{ now: NowPlaying | null; party: PartyState | null }>('/api/presence', 'PUT', {
       now,
     }),
-  friends: () => request<{ statuses: Record<string, NowPlaying> }>('/api/presence/friends'),
+  /**
+   * Everything that changes while the app is open, in one request: every status
+   * the viewer may see, and the session they are in.
+   */
+  live: () =>
+    request<{ statuses: Record<string, NowPlaying>; party: PartyState | null }>(
+      '/api/presence/live',
+    ),
 
   privacy: () => request<PrivacySettings>('/api/presence/privacy'),
   setPrivacy: (patch: Partial<PrivacySettings>) =>

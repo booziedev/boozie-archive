@@ -2,7 +2,7 @@ import { gradientFor, initials } from '../lib/format';
 import type { PublicProfile } from '../lib/types';
 
 interface AvatarProps {
-  profile: Pick<PublicProfile, 'id' | 'username' | 'displayName' | 'avatarUrl' | 'accentColor'>;
+  profile: Pick<PublicProfile, 'id' | 'username' | 'displayName' | 'avatarUrl'>;
   size?: number;
   className?: string;
 }

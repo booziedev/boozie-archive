@@ -21,6 +21,7 @@ import { EmptyState, ErrorState } from '../components/states';
 import { StickerPicker } from '../components/StickerPicker';
 import { social } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
+import { usePresence } from '../context/PresenceContext';
 import type { Attachment, Message, ThreadSummary } from '../lib/types';
 
 /** "14:32" for today, "Mon 14:32" this week, else a date. */
@@ -114,6 +115,7 @@ function AttachmentView({ attachment }: { attachment: Attachment }) {
 /** The conversation with one friend. */
 function Conversation({ thread }: { thread: ThreadSummary }) {
   const { user } = useAuth();
+  const { statusOf } = usePresence();
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState('');
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -181,8 +183,8 @@ function Conversation({ thread }: { thread: ThreadSummary }) {
             </span>
             {/* Their current track sits where the handle would, and falls back
                 to the handle when there is nothing to show. */}
-            {thread.friend.listeningNow ? (
-              <ListeningNow now={thread.friend.listeningNow} compact />
+            {statusOf(thread.friend.id) ? (
+              <ListeningNow now={statusOf(thread.friend.id)} compact />
             ) : (
               <span className="block truncate text-xs text-zinc-600">@{thread.friend.username}</span>
             )}
@@ -300,14 +302,13 @@ function Conversation({ thread }: { thread: ThreadSummary }) {
 /** Two-pane messenger: thread list on the left, conversation on the right. */
 export function MessagesPage() {
   const { friendId } = useParams<{ friendId?: string }>();
+  const { statusOf } = usePresence();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
   const threadsQuery = useQuery({
     queryKey: ['dm', 'threads'],
     queryFn: social.threads,
-    // Each thread carries the other person's current track, so this doubles as
-    // the poll that keeps their status moving.
     refetchInterval: 15_000,
     refetchIntervalInBackground: false,
   });
@@ -397,8 +398,8 @@ export function MessagesPage() {
                           </span>
                         )}
                       </span>
-                      {thread.friend.listeningNow ? (
-                        <ListeningNow now={thread.friend.listeningNow} compact />
+                      {statusOf(thread.friend.id) ? (
+                        <ListeningNow now={statusOf(thread.friend.id)} compact />
                       ) : (
                         <span className="block truncate text-xs text-zinc-600">
                           {thread.lastMessagePreview ?? 'No messages yet'}

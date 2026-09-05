@@ -68,7 +68,7 @@ export function ListenAlongPeers({ className = '' }: { className?: string }) {
               pointer over a picture names that person, elsewhere on the stack it
               names the session.
             */}
-            <Avatar profile={{ ...listener, accentColor: null }} size={26} />
+            <Avatar profile={listener} size={26} />
             {listener.id === party.hostId && (
               // A dot marks the host, so the row reads as "them, plus these".
               <span
@@ -93,7 +93,7 @@ export function ListenAlongPeers({ className = '' }: { className?: string }) {
           <ul className="space-y-0.5">
             {ordered.map((listener) => (
               <li key={listener.id} className="flex items-center gap-2 rounded-lg px-1.5 py-1">
-                <Avatar profile={{ ...listener, accentColor: null }} size={22} />
+                <Avatar profile={listener} size={22} />
                 <span className="min-w-0 flex-1 truncate text-xs text-zinc-200">
                   {listener.displayName || listener.username}
                 </span>

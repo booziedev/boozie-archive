@@ -127,7 +127,6 @@ export function Layout() {
     username: user?.username ?? '',
     displayName: null,
     avatarUrl: null,
-    accentColor: null,
   };
 
   /**

@@ -78,6 +78,10 @@ admin can demote or delete themselves.
   here), `friends` (the default), or `nobody`.
 - **A status exists only while something is playing.** Paused is not a state
   anyone else can see, so a browser left open on a paused track shows nothing.
+- **One request serves every status a viewer may see** — friends, plus anyone
+  who set their audience to everyone — and applies both rules in the query. It
+  is polled a few seconds apart while the tab is visible, and paused while it is
+  not.
 - **A status expires on its own.** Rows older than `PRESENCE_TTL_SECONDS` (70)
   are never returned, so a browser that disappears simply stops being live and
   nothing has to run to clean up after it. Closing the tab retracts it at once.

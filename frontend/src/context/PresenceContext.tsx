@@ -26,14 +26,28 @@ import type { NowPlaying, PartyState, Track } from '../lib/types';
 const IDLE_BEAT_MS = 20_000;
 /** Heartbeat while hosting: the guests' sync is only as fresh as this. */
 const HOST_BEAT_MS = 5_000;
-/** How often a guest asks where the host is. */
-const FOLLOW_POLL_MS = 4_000;
+/**
+ * How often everyone asks what changed.
+ *
+ * One poll answers three things at once — friends' statuses, who is in your
+ * session, and where the host has got to — so a skip reaches every screen that
+ * shows it on the same tick. It is paused while the tab is hidden and fires
+ * immediately when it comes back, so a backgrounded phone costs nothing.
+ */
+const LIVE_POLL_MS = 3_000;
 /** Drift a guest tolerates before seeking; below this, seeking is worse. */
 const DRIFT_TOLERANCE_S = 2.5;
 
 interface PresenceContextValue {
   /** The session this account hosts or follows, or null. */
   party: PartyState | null;
+  /**
+   * What everyone visible is playing, keyed by user id, refreshed on the same
+   * tick for the whole app. Read it through `statusOf`.
+   */
+  statuses: Record<string, NowPlaying>;
+  /** The live status for one account, or null when they are not playing. */
+  statusOf: (userId: string | undefined) => NowPlaying | null;
   /** True when following someone else's session rather than hosting. */
   isFollowing: boolean;
   isHosting: boolean;
@@ -96,6 +110,7 @@ export function PresenceProvider({ children }: { children: ReactNode }) {
     player;
 
   const [party, setParty] = useState<PartyState | null>(null);
+  const [statuses, setStatuses] = useState<Record<string, NowPlaying>>({});
   const [outOfSync, setOutOfSync] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -111,6 +126,10 @@ export function PresenceProvider({ children }: { children: ReactNode }) {
 
   const partyRef = useRef<PartyState | null>(null);
   partyRef.current = party;
+
+  // Read by the poll, which must not restart every time this flips.
+  const outOfSyncRef = useRef(false);
+  outOfSyncRef.current = outOfSync;
 
   const isHosting = Boolean(party?.isHost && party.live);
   const isFollowing = Boolean(party && !party.isHost && party.live);
@@ -214,21 +233,13 @@ export function PresenceProvider({ children }: { children: ReactNode }) {
   const refreshParty = useCallback(async () => {
     if (!user) return;
     try {
-      const result = await presence.currentParty();
+      const result = await presence.live();
+      setStatuses(result.statuses);
       setParty(result.party);
     } catch {
       // Leave the last known state in place rather than flickering the UI.
     }
   }, [user]);
-
-  // Restore an in-progress session after a reload.
-  useEffect(() => {
-    if (!user) {
-      setParty(null);
-      return;
-    }
-    void refreshParty();
-  }, [refreshParty, user]);
 
   const listenAlongWith = useCallback(
     async (userId: string) => {
@@ -316,36 +327,58 @@ export function PresenceProvider({ children }: { children: ReactNode }) {
     [getPosition, hostPosition, pause, playAt, seek, toggle],
   );
 
+  /**
+   * The one poll the whole app runs on.
+   *
+   * It carries every status the viewer may see and the session they are in, so
+   * the friends list, the messenger, a profile and both sides of a listen-along
+   * all move together. Before this, each list refetched on its own clock and a
+   * host learned they had listeners only from their next heartbeat — which is
+   * why a skip took fifteen seconds to appear and the session indicator showed
+   * up on one screen before the other.
+   */
   useEffect(() => {
-    if (!isFollowing || !party) return;
+    if (!user) {
+      setParty(null);
+      setStatuses({});
+      return;
+    }
 
     let cancelled = false;
 
     async function tick() {
+      if (document.visibilityState === 'hidden') return;
       try {
-        const result = await presence.party(party!.id);
+        const result = await presence.live();
         if (cancelled) return;
+
+        setStatuses(result.statuses);
         setParty(result.party);
 
-        if (!result.party.live) {
-          // The host ended it (or went away): stop following, keep playing.
-          setParty(null);
-          return;
+        // Following, and not deliberately paused: steer the player at the host.
+        const live = result.party;
+        if (live && !live.isHost && live.live && !outOfSyncRef.current) {
+          await applyPartyState(live);
         }
-        // A guest who paused on purpose is left alone until they resync.
-        if (!outOfSync) await applyPartyState(result.party);
       } catch {
-        // Transient failure — try again on the next tick.
+        // Transient failure — the next tick tries again.
       }
     }
 
     void tick();
-    const timer = window.setInterval(() => void tick(), FOLLOW_POLL_MS);
+    const timer = window.setInterval(() => void tick(), LIVE_POLL_MS);
+    // Coming back to a backgrounded tab should not wait for the next tick.
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void tick();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+
     return () => {
       cancelled = true;
       window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
     };
-  }, [applyPartyState, isFollowing, outOfSync, party?.id]);
+  }, [applyPartyState, user]);
 
   /**
    * A guest pausing means "hold on a second", not "leave".
@@ -400,6 +433,11 @@ export function PresenceProvider({ children }: { children: ReactNode }) {
     void leaveParty();
   }, [isFollowing, leaveParty, loadedTrackId]);
 
+  const statusOf = useCallback(
+    (userId: string | undefined) => (userId ? (statuses[userId] ?? null) : null),
+    [statuses],
+  );
+
   const resync = useCallback(() => {
     setOutOfSync(false);
     const active = partyRef.current;
@@ -409,6 +447,8 @@ export function PresenceProvider({ children }: { children: ReactNode }) {
   const value = useMemo<PresenceContextValue>(
     () => ({
       party,
+      statuses,
+      statusOf,
       isFollowing,
       isHosting,
       outOfSync,
@@ -428,6 +468,8 @@ export function PresenceProvider({ children }: { children: ReactNode }) {
       party,
       refreshParty,
       resync,
+      statusOf,
+      statuses,
     ],
   );
 

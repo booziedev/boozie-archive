@@ -303,19 +303,31 @@ export async function statusFor(viewerId: string, userId: string): Promise<NowPl
   return rows[0] ? toNowPlaying(rows[0]) : null;
 }
 
-/** Every playing friend's status the viewer may see, keyed by user id. */
-export async function friendStatuses(viewerId: string): Promise<Record<string, NowPlaying>> {
+/**
+ * Every status this viewer is allowed to see, keyed by user id.
+ *
+ * One query answers the whole UI: the friends list, the messenger and a profile
+ * all read a person's current track out of this map, so a skip or a stop shows
+ * up in all of them on the same tick instead of whenever each list happens to
+ * refetch. It covers friends, plus anyone who set their audience to everyone —
+ * which is exactly what "everyone" was chosen to mean.
+ */
+export async function visibleStatuses(viewerId: string): Promise<Record<string, NowPlaying>> {
   const { rows } = await pool.query<StatusRow>(
     `SELECT s.*
        FROM listening_status s
        JOIN users u ON u.id = s.user_id AND u.disabled = false
-       JOIN friendships f
+       LEFT JOIN friendships f
          ON least(f.requester_id, f.addressee_id) = least(u.id, $1::uuid)
         AND greatest(f.requester_id, f.addressee_id) = greatest(u.id, $1::uuid)
         AND f.status = 'accepted'
       WHERE s.is_playing
         AND s.updated_at > now() - ($2 || ' seconds')::interval
-        AND u.status_visibility IN ('everyone', 'friends')`,
+        AND u.id <> $1
+        AND (
+          u.status_visibility = 'everyone'
+          OR (u.status_visibility = 'friends' AND f.id IS NOT NULL)
+        )`,
     [viewerId, String(config.presenceTtlSeconds)],
   );
 
