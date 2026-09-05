@@ -6,6 +6,13 @@ import { Avatar } from './Avatar';
 import { social } from '../lib/api';
 import type { Attachment } from '../lib/types';
 
+/** A piece of the library, as opposed to a GIF, an emoji or a party invite. */
+function isLibraryItem(
+  attachment: Attachment,
+): attachment is Extract<Attachment, { kind: 'album' | 'artist' | 'track' }> {
+  return attachment.kind === 'album' || attachment.kind === 'artist' || attachment.kind === 'track';
+}
+
 /**
  * "Send to a friend" sheet.
  *
@@ -56,8 +63,15 @@ export function ShareDialog({
         </header>
 
         <div className="border-b border-white/5 px-4 py-3">
-          <p className="truncate text-sm font-medium text-zinc-100">{attachment.kind !== 'gif' && attachment.kind !== 'emoji' ? attachment.name : 'Attachment'}</p>
-          {attachment.kind !== 'gif' && attachment.kind !== 'emoji' && attachment.subtitle && (
+          {/*
+            Narrowed by naming the library kinds rather than excluding the
+            picker's: the union also carries listen-along invites, which have
+            no subtitle and are never shared through this dialog.
+          */}
+          <p className="truncate text-sm font-medium text-zinc-100">
+            {isLibraryItem(attachment) ? attachment.name : 'Attachment'}
+          </p>
+          {isLibraryItem(attachment) && attachment.subtitle && (
             <p className="truncate text-xs text-zinc-500">{attachment.subtitle}</p>
           )}
           <input

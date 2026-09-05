@@ -6,10 +6,15 @@
       viewport-fit=cover + the safe-area padding in index.css is what makes the
       app sit correctly under the notch / home indicator when it is installed
       to the iOS home screen from Safari.
+
+      Zooming is locked: the layout is already responsive down to 320px, and
+      an accidental pinch while scrolling a long list left the page stuck
+      off-centre. iOS Safari ignores user-scalable outside standalone mode, so
+      main.tsx blocks the pinch gestures as well.
     -->
     <meta
       name="viewport"
-      content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=5"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no"
     />
     <meta name="theme-color" content="#06060a" />
     <meta name="color-scheme" content="dark" />

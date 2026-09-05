@@ -205,4 +205,82 @@ export const migrations: Migration[] = [
         CHECK (body IS NOT NULL OR stored_file IS NOT NULL OR kind = 'track');
     `,
   },
+  {
+    id: '005_presence_and_parties',
+    sql: /* sql */ `
+      -- Who may see what you are listening to. 'friends' is the default: the
+      -- feature is for friends, and an account that never opens settings should
+      -- not end up broadcasting to the whole invite list.
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS status_visibility text NOT NULL DEFAULT 'friends';
+      ALTER TABLE users DROP CONSTRAINT IF EXISTS users_status_visibility_check;
+      ALTER TABLE users ADD CONSTRAINT users_status_visibility_check
+        CHECK (status_visibility IN ('everyone', 'friends', 'nobody'));
+
+      -- Opt out of listen-along invites without hiding your status.
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS allow_party_invites boolean NOT NULL DEFAULT true;
+
+      /*
+       * The current track, one row per person, overwritten on every heartbeat.
+       *
+       * The track is denormalised rather than joined against the library: the
+       * index lives in memory in the API process and is rebuilt by a rescan, so
+       * a status that outlived a re-tag still renders instead of going blank.
+       * Staleness is decided at read time from updated_at, so a browser that
+       * disappears (closed lid, dead battery) simply stops being "live" —
+       * nothing has to run to clean up after it.
+       */
+      CREATE TABLE IF NOT EXISTS listening_status (
+        user_id    uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        track_id   text NOT NULL,
+        title      text NOT NULL,
+        artist     text NOT NULL,
+        album      text,
+        album_id   text,
+        cover_id   text,
+        duration   double precision,
+        position   double precision NOT NULL DEFAULT 0,
+        is_playing boolean NOT NULL DEFAULT false,
+        updated_at timestamptz NOT NULL DEFAULT now()
+      );
+
+      CREATE INDEX IF NOT EXISTS listening_status_updated_idx ON listening_status (updated_at DESC);
+
+      -- A listen-along session. The host's player is the source of truth; the
+      -- row is the mirror everyone else reads.
+      CREATE TABLE IF NOT EXISTS listen_parties (
+        id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        host_id     uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        track_id    text,
+        title       text,
+        artist      text,
+        album       text,
+        album_id    text,
+        cover_id    text,
+        duration    double precision,
+        position    double precision NOT NULL DEFAULT 0,
+        is_playing  boolean NOT NULL DEFAULT false,
+        -- When the position above was sampled, so a guest can work out where
+        -- the host is now, rather than where they were when the row was written.
+        position_at timestamptz NOT NULL DEFAULT now(),
+        created_at  timestamptz NOT NULL DEFAULT now(),
+        updated_at  timestamptz NOT NULL DEFAULT now(),
+        ended_at    timestamptz
+      );
+
+      -- At most one live party per host; ended ones keep their row for the
+      -- invite messages that point at them.
+      CREATE UNIQUE INDEX IF NOT EXISTS listen_parties_one_live_per_host
+        ON listen_parties (host_id) WHERE ended_at IS NULL;
+
+      CREATE TABLE IF NOT EXISTS listen_party_members (
+        party_id     uuid NOT NULL REFERENCES listen_parties(id) ON DELETE CASCADE,
+        user_id      uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        joined_at    timestamptz NOT NULL DEFAULT now(),
+        last_seen_at timestamptz NOT NULL DEFAULT now(),
+        PRIMARY KEY (party_id, user_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS listen_party_members_user_idx ON listen_party_members (user_id);
+    `,
+  },
 ];

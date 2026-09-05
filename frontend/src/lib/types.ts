@@ -155,6 +155,11 @@ export interface PublicProfile {
   role: Role;
   createdAt: string;
   friendStatus: FriendStatus;
+  /**
+   * What they have playing, or null when they are quiet, offline, or have
+   * chosen not to show it to whoever is looking.
+   */
+  listeningNow?: NowPlaying | null;
 }
 
 export interface FriendSummary extends PublicProfile {
@@ -176,7 +181,9 @@ export type Attachment =
       title?: string;
     }
   | { kind: 'emoji'; url: string; name: string; provider: string }
-  | { kind: 'album' | 'artist' | 'track'; id: string; name: string; subtitle?: string };
+  | { kind: 'album' | 'artist' | 'track'; id: string; name: string; subtitle?: string }
+  /** An invite to listen along: `id` is the session, `name` is the host. */
+  | { kind: 'party'; id: string; name: string };
 
 export interface Message {
   id: string;
@@ -255,4 +262,50 @@ export interface Suggestion {
   createdAt: string;
   author: string | null;
   authorId: string | null;
+}
+
+// --- listening status and listen-along -------------------------------------
+
+/** Who may see your current track. */
+export type StatusVisibility = 'everyone' | 'friends' | 'nobody';
+
+export interface PrivacySettings {
+  statusVisibility: StatusVisibility;
+  allowPartyInvites: boolean;
+}
+
+/** A snapshot of somebody's player. */
+export interface NowPlaying {
+  trackId: string;
+  title: string;
+  artist: string;
+  album: string | null;
+  albumId: string | null;
+  coverId: string | null;
+  duration: number | null;
+  position: number;
+  isPlaying: boolean;
+  updatedAt: string;
+}
+
+export interface PartyListener {
+  id: string;
+  username: string;
+  displayName: string | null;
+  avatarUrl: string | null;
+}
+
+export interface PartyState {
+  id: string;
+  hostId: string;
+  hostUsername: string;
+  hostDisplayName: string | null;
+  now: NowPlaying | null;
+  /** When the host's position was sampled, by the server's clock. */
+  positionAt: string;
+  /** The server's clock at the moment it answered, for drift correction. */
+  serverTime: string;
+  listeners: PartyListener[];
+  live: boolean;
+  isHost: boolean;
 }

@@ -15,8 +15,11 @@ import type {
   Invite,
   LibraryStats,
   Message,
+  NowPlaying,
   Page,
+  PartyState,
   PendingProfile,
+  PrivacySettings,
   PublicProfile,
   SearchResults,
   SiteSettings,
@@ -277,6 +280,50 @@ export const social = {
 
   badges: () => request<{ messages: number; friendRequests: number }>('/api/social/badges'),
 };
+
+/** Listening status, its privacy controls, and listen-along sessions. */
+export const presence = {
+  /**
+   * Reports the player's state. `now` is null when nothing is loaded, which
+   * retracts the status rather than letting it linger until it expires.
+   */
+  heartbeat: (now: NowPlayingInput | null) =>
+    jsonRequest<{ now: NowPlaying | null; party: PartyState | null }>('/api/presence', 'PUT', {
+      now,
+    }),
+  friends: () => request<{ statuses: Record<string, NowPlaying> }>('/api/presence/friends'),
+
+  privacy: () => request<PrivacySettings>('/api/presence/privacy'),
+  setPrivacy: (patch: Partial<PrivacySettings>) =>
+    jsonRequest<PrivacySettings>('/api/presence/privacy', 'PATCH', patch),
+
+  currentParty: () => request<{ party: PartyState | null }>('/api/parties/current'),
+  startParty: () => jsonRequest<{ party: PartyState }>('/api/parties', 'POST'),
+  party: (id: string) => request<{ party: PartyState }>(`/api/parties/${encodeURIComponent(id)}`),
+  joinParty: (id: string) =>
+    jsonRequest<{ party: PartyState }>(`/api/parties/${encodeURIComponent(id)}/join`, 'POST'),
+  leaveParty: (id: string) =>
+    jsonRequest<{ ok: true }>(`/api/parties/${encodeURIComponent(id)}/leave`, 'POST'),
+  invite: (id: string, userId: string) =>
+    jsonRequest<{ threadId: string; message: Message }>(
+      `/api/parties/${encodeURIComponent(id)}/invite`,
+      'POST',
+      { userId },
+    ),
+};
+
+/** What the player sends up; the server fills in the timestamps. */
+export interface NowPlayingInput {
+  trackId: string;
+  title: string;
+  artist: string;
+  album: string | null;
+  albumId: string | null;
+  coverId: string | null;
+  duration: number | null;
+  position: number;
+  isPlaying: boolean;
+}
 
 export const stickers = {
   providers: () => request<StickerProviders>('/api/stickers/providers'),

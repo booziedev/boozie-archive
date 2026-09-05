@@ -27,6 +27,7 @@ import {
   unreadCount,
   updateProfile,
 } from '../lib/social.js';
+import { friendStatuses, statusFor } from '../lib/presence.js';
 
 /**
  * Friends, profiles and direct messages.
@@ -121,7 +122,10 @@ export const socialRoutes: FastifyPluginAsync = async (app: FastifyInstance) => 
     const { username } = request.params as { username: string };
     const profile = await getProfileByUsername(request.user!.id, username);
     if (!profile) return reply.code(404).send({ error: 'No such account.' });
-    return { profile };
+    // statusFor applies the owner's visibility setting, so this is null unless
+    // they have chosen to show it to someone standing where this viewer is.
+    const listeningNow = await statusFor(request.user!.id, profile.id);
+    return { profile: { ...profile, listeningNow } };
   });
 
   app.get('/users/search', async (request) => {
@@ -132,11 +136,15 @@ export const socialRoutes: FastifyPluginAsync = async (app: FastifyInstance) => 
   // -------------------------------------------------------------- friends
 
   app.get('/friends', async (request) => {
-    const [friends, requests] = await Promise.all([
+    const [friends, requests, statuses] = await Promise.all([
       listFriends(request.user!.id),
       listFriendRequests(request.user!.id),
+      friendStatuses(request.user!.id),
     ]);
-    return { friends, ...requests };
+    return {
+      friends: friends.map((friend) => ({ ...friend, listeningNow: statuses[friend.id] ?? null })),
+      ...requests,
+    };
   });
 
   app.post('/friends/requests', async (request, reply) => {
@@ -168,7 +176,22 @@ export const socialRoutes: FastifyPluginAsync = async (app: FastifyInstance) => 
 
   // ------------------------------------------------------------- messages
 
-  app.get('/dm/threads', async (request) => ({ threads: await listThreads(request.user!.id) }));
+  /**
+   * Conversations, each carrying the other person's current track so the
+   * messenger can show it beside their name without a second round trip.
+   */
+  app.get('/dm/threads', async (request) => {
+    const [threads, statuses] = await Promise.all([
+      listThreads(request.user!.id),
+      friendStatuses(request.user!.id),
+    ]);
+    return {
+      threads: threads.map((thread) => ({
+        ...thread,
+        friend: { ...thread.friend, listeningNow: statuses[thread.friend.id] ?? null },
+      })),
+    };
+  });
 
   /** Opens (or creates) the conversation with one friend. */
   app.post('/dm/threads', async (request, reply) => {

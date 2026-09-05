@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Clock, MessageSquare, Search, UserMinus, UserPlus, Users, X } from 'lucide-react';
 
 import { Avatar } from '../components/Avatar';
+import { ListeningNow } from '../components/ListeningNow';
 import { PageHeader, SectionHeader } from '../components/PageHeader';
 import { EmptyState, ErrorState } from '../components/states';
 import { social } from '../lib/api';
@@ -17,7 +18,13 @@ export function FriendsPage() {
   const debounced = useDebounced(query, 300);
   const [error, setError] = useState<string | null>(null);
 
-  const friendsQuery = useQuery({ queryKey: ['friends'], queryFn: social.friends });
+  const friendsQuery = useQuery({
+    queryKey: ['friends'],
+    queryFn: social.friends,
+    // Rows carry each friend's current track, so this is also the status poll.
+    refetchInterval: 15_000,
+    refetchIntervalInBackground: false,
+  });
   const searchQuery = useQuery({
     queryKey: ['users', 'search', debounced],
     queryFn: () => social.searchUsers(debounced),
@@ -58,7 +65,11 @@ export function FriendsPage() {
             <span className="block truncate text-sm font-medium text-zinc-100">
               {profile.displayName || profile.username}
             </span>
-            <span className="block truncate text-xs text-zinc-600">@{profile.username}</span>
+            {profile.listeningNow ? (
+              <ListeningNow now={profile.listeningNow} compact />
+            ) : (
+              <span className="block truncate text-xs text-zinc-600">@{profile.username}</span>
+            )}
           </span>
         </Link>
         <div className="flex shrink-0 items-center gap-1">{action}</div>

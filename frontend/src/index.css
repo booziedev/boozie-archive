@@ -31,7 +31,14 @@
 
   html {
     -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
     scrollbar-gutter: stable;
+    /*
+     * Drops double-tap-to-zoom while leaving panning alone, so scrolling is
+     * unaffected. The pinch gesture is cancelled in main.tsx instead —
+     * disabling it here would also stop drags on the seek and volume sliders.
+     */
+    touch-action: manipulation;
   }
 
   body {
@@ -40,6 +47,19 @@
     -webkit-tap-highlight-color: transparent;
     overscroll-behavior-y: none;
     min-height: 100dvh;
+  }
+
+  /*
+   * iOS zooms the whole page in when a field smaller than 16px takes focus,
+   * and with zooming locked it has no way back out. Fields stay at least 16px
+   * on touch devices; pointer devices keep the smaller type.
+   */
+  @media (pointer: coarse) {
+    input,
+    select,
+    textarea {
+      font-size: max(16px, 1em);
+    }
   }
 
   /*
@@ -217,6 +237,34 @@
 @layer components {
   .surface {
     @apply rounded-2xl border border-white/5 bg-ink-850/70 shadow-card backdrop-blur-xl;
+  }
+
+  /*
+   * The bars in a "listening now" badge. Each one gets its own delay inline,
+   * so the three read as a level meter rather than pulsing in unison. Under
+   * reduced motion they hold at a readable height instead of stopping dead at
+   * whatever frame they were on.
+   */
+  .eq-bar {
+    height: 40%;
+    animation: eq-bounce 900ms ease-in-out infinite;
+  }
+
+  @keyframes eq-bounce {
+    0%,
+    100% {
+      height: 30%;
+    }
+    50% {
+      height: 100%;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .eq-bar {
+      animation: none;
+      height: 70%;
+    }
   }
 
   .surface-hover {

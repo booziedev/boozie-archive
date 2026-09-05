@@ -1,10 +1,24 @@
 import { useState } from 'react';
-import { CheckCircle2, Palette, RotateCcw, Share, Smartphone, Sparkles, Trash2 } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  CheckCircle2,
+  Eye,
+  Loader2,
+  Palette,
+  RotateCcw,
+  Share,
+  Smartphone,
+  Sparkles,
+  Trash2,
+} from 'lucide-react';
 
 import { PageHeader } from '../components/PageHeader';
+import { presence } from '../lib/api';
+import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { useIsIOS, useIsStandalone } from '../hooks/useIsStandalone';
 import { GRADIENTS, hexToHsl, hslToHex, hexToRgb, type GradientId } from '../lib/theme';
+import type { StatusVisibility } from '../lib/types';
 
 /** Ready-made accents, so picking a look takes one tap. */
 const PRESETS = ['#7c5cff', '#22d3ee', '#34d399', '#f59e0b', '#f43f5e', '#a855f7', '#38bdf8', '#e2e8f0'];
@@ -12,6 +26,7 @@ const PRESETS = ['#7c5cff', '#22d3ee', '#34d399', '#f59e0b', '#f43f5e', '#a855f7
 /** Appearance, installation and local maintenance. */
 export function SettingsPage() {
   const { theme, setTheme, reset, isDefault } = useTheme();
+  const { user } = useAuth();
   const standalone = useIsStandalone();
   const isIOS = useIsIOS();
 
@@ -266,6 +281,9 @@ export function SettingsPage() {
         )}
       </section>
 
+      {/* ------------------------------- privacy --------------------------- */}
+      {user && <PrivacySection />}
+
       {/* ------------------------------- install --------------------------- */}
       <section className="surface space-y-3 p-5">
         <div className="flex items-center gap-2">
@@ -338,4 +356,113 @@ function previewFor(id: GradientId, from: string, to: string): string {
     default:
       return '#0a0a10';
   }
+}
+
+/** Who may see your current track, and whether people may invite you along. */
+const VISIBILITY_OPTIONS: { value: StatusVisibility; label: string; description: string }[] = [
+  {
+    value: 'everyone',
+    label: 'Everyone',
+    description: 'Anyone with an account here can see what you have playing.',
+  },
+  {
+    value: 'friends',
+    label: 'Friends only',
+    description: 'Only people you have added as friends. This is the default.',
+  },
+  {
+    value: 'nobody',
+    label: 'Nobody',
+    description: 'Your status is never shown, and nothing about it is stored.',
+  },
+];
+
+function PrivacySection() {
+  const queryClient = useQueryClient();
+  const [error, setError] = useState<string | null>(null);
+
+  const privacyQuery = useQuery({ queryKey: ['presence', 'privacy'], queryFn: presence.privacy });
+
+  const save = useMutation({
+    mutationFn: presence.setPrivacy,
+    onMutate: () => setError(null),
+    onSuccess: (settings) => {
+      queryClient.setQueryData(['presence', 'privacy'], settings);
+      // Friends' views of you change too, so drop what they had cached.
+      void queryClient.invalidateQueries({ queryKey: ['friends'] });
+      void queryClient.invalidateQueries({ queryKey: ['profile'] });
+    },
+    onError: (saveError) =>
+      setError(saveError instanceof Error ? saveError.message : 'Could not save that.'),
+  });
+
+  const settings = privacyQuery.data;
+
+  return (
+    <section className="surface space-y-5 p-5">
+      <div className="flex items-center gap-2">
+        <Eye size={17} className="text-accent-400" />
+        <h2 className="text-sm font-semibold uppercase tracking-widest text-zinc-300">Privacy</h2>
+        {save.isPending && <Loader2 size={14} className="animate-spin text-zinc-500" />}
+      </div>
+
+      <div>
+        <p className="mb-1 text-sm font-medium text-zinc-200">Who can see what you are listening to</p>
+        <p className="mb-3 text-xs leading-relaxed text-zinc-500">
+          Your current track appears on your profile and next to your name in chat. It clears itself
+          about a minute after you close the app.
+        </p>
+
+        <div className="space-y-2">
+          {VISIBILITY_OPTIONS.map((option) => (
+            <label
+              key={option.value}
+              className={`flex cursor-pointer gap-3 rounded-xl border p-3 transition-colors ${
+                settings?.statusVisibility === option.value
+                  ? 'border-accent-500/60 bg-white/[0.06]'
+                  : 'border-white/10 hover:border-white/20'
+              }`}
+            >
+              <input
+                type="radio"
+                name="status-visibility"
+                value={option.value}
+                checked={settings?.statusVisibility === option.value}
+                disabled={!settings || save.isPending}
+                onChange={() => save.mutate({ statusVisibility: option.value })}
+                className="mt-0.5 h-4 w-4 shrink-0 accent-accent-500"
+              />
+              <span className="min-w-0">
+                <span className="block text-sm font-medium text-zinc-200">{option.label}</span>
+                <span className="block text-xs leading-relaxed text-zinc-500">
+                  {option.description}
+                </span>
+              </span>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <label className="flex cursor-pointer items-start gap-3 border-t border-white/5 pt-4">
+        <input
+          type="checkbox"
+          checked={settings?.allowPartyInvites ?? true}
+          disabled={!settings || save.isPending}
+          onChange={(event) => save.mutate({ allowPartyInvites: event.target.checked })}
+          className="mt-0.5 h-4 w-4 shrink-0 accent-accent-500"
+        />
+        <span>
+          <span className="block text-sm text-zinc-200">Let friends invite me to listen together</span>
+          <span className="block text-xs leading-relaxed text-zinc-500">
+            Turning this off stops the invites arriving. You can still start a session yourself.
+          </span>
+        </span>
+      </label>
+
+      {privacyQuery.isError && (
+        <p className="text-xs text-red-400">Could not load your privacy settings.</p>
+      )}
+      {error && <p className="text-xs text-red-400">{error}</p>}
+    </section>
+  );
 }

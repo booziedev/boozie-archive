@@ -193,6 +193,21 @@ export const config = {
   friendRequestsPerHour: int('FRIEND_REQUESTS_PER_HOUR', 30),
 
   /**
+   * How long a "listening now" status stays live without a heartbeat.
+   *
+   * The client beats every 20s while playing, so this leaves room for one
+   * missed beat plus a slow request before a closed tab goes quiet.
+   */
+  presenceTtlSeconds: int('PRESENCE_TTL_SECONDS', 70),
+  /**
+   * How long a listen-along session survives without the host checking in.
+   * Longer than the presence TTL: a host who is paused still beats, but a
+   * backgrounded phone throttles timers hard, and dropping the party out from
+   * under everyone is worse than holding it open a little longer.
+   */
+  partyTtlSeconds: int('PARTY_TTL_SECONDS', 150),
+
+  /**
    * GIF / emoji search keys. Searches are proxied through this server so the
    * keys never reach the browser and the provider never sees a visitor's IP.
    * Without a key the picker simply reports that search is unavailable.

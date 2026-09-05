@@ -15,6 +15,7 @@ import { apiRoutes } from './routes/api.js';
 import { adminRoutes } from './routes/admin.js';
 import { authRoutes, inviteThrottle, loginThrottle } from './routes/auth.js';
 import { mediaRoutes } from './routes/media.js';
+import { presenceRoutes } from './routes/presence.js';
 import { socialRoutes } from './routes/social.js';
 import { stickerRoutes } from './routes/stickers.js';
 import { suggestionRoutes } from './routes/suggestions.js';
@@ -161,6 +162,25 @@ async function main() {
     return PUBLIC_PATHS.has(pathname) || pathname.startsWith('/api/auth/invite/');
   }
 
+  /** Endpoints that are about a person rather than the library. */
+  const ACCOUNT_ONLY_PREFIXES = [
+    '/api/profile',
+    '/api/friends',
+    '/api/dm/',
+    '/api/users/',
+    '/api/social/',
+    '/api/presence',
+    '/api/parties',
+    '/api/suggestions',
+    '/api/stickers/',
+  ];
+
+  function isAccountOnlyPath(pathname: string): boolean {
+    return ACCOUNT_ONLY_PREFIXES.some(
+      (prefix) => pathname === prefix || pathname.startsWith(prefix.endsWith('/') ? prefix : `${prefix}/`),
+    );
+  }
+
   if (config.authEnabled) {
     app.addHook('onRequest', async (request, reply) => {
       const token = request.cookies?.[config.cookieName];
@@ -217,7 +237,13 @@ async function main() {
         });
       }
 
-      if (config.allowPublicBrowse && request.method === 'GET') return;
+      // Public browsing opens the *library* to anonymous readers, never the
+      // private surface: friends, messages, profiles, statuses and listening
+      // sessions all belong to an account, and the handlers behind them assume
+      // one exists.
+      if (config.allowPublicBrowse && request.method === 'GET' && !isAccountOnlyPath(pathname)) {
+        return;
+      }
 
       if (!request.user) {
         return reply.code(401).send({ error: 'Sign in to browse the archive.', code: 'unauthenticated' });
@@ -250,6 +276,7 @@ async function main() {
     await app.register(adminRoutes, { prefix: '/api' });
     // Friends, DMs and the GIF/emoji picker only exist when there are accounts.
     await app.register(socialRoutes, { prefix: '/api' });
+    await app.register(presenceRoutes, { prefix: '/api' });
     await app.register(stickerRoutes, { prefix: '/api' });
     await app.register(suggestionRoutes, { prefix: '/api' });
   }

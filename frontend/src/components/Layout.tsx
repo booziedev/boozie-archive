@@ -56,6 +56,14 @@ function NavBadge({ count }: { count: number }) {
   );
 }
 
+/** The query string minus the pagination cursor, for scroll decisions. */
+function withoutPagination(search: string): string {
+  const params = new URLSearchParams(search);
+  params.delete('limit');
+  params.sort();
+  return params.toString();
+}
+
 /** App shell: sidebar (desktop), top bar, bottom tab bar (mobile) and player. */
 export function Layout() {
   const { data: stats } = useStats();
@@ -122,10 +130,19 @@ export function Layout() {
     accentColor: null,
   };
 
-  // Every navigation starts at the top of the page.
+  /**
+   * Every navigation starts at the top of the page — except paginating.
+   *
+   * "Show more" appends `?limit=` to the current URL, which is a location
+   * change like any other, so scrolling on every search change threw the
+   * reader back to the top of the list they were half-way down. Comparing the
+   * query string with `limit` removed keeps that jump for real navigations
+   * (a new filter, a new search term) and drops it for "show me more of this".
+   */
+  const scrollKey = `${location.pathname}?${withoutPagination(location.search)}`;
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior });
-  }, [location.pathname, location.search]);
+  }, [scrollKey]);
 
   const favouriteCount =
     favorites.track.length + favorites.album.length + favorites.artist.length;
@@ -211,7 +228,17 @@ export function Layout() {
           )}
         </nav>
 
-        <div className="space-y-3 px-6 pb-6">
+        {/*
+          The player bar is fixed across the full width, so it lies over the
+          bottom of the sidebar. Reserving the measured chrome height keeps the
+          account row, the admin link, Settings and Sign out reachable — they
+          were being covered whenever something was playing, and the
+          listen-along strip makes that bar taller still.
+        */}
+        <div
+          className="space-y-3 px-6"
+          style={{ paddingBottom: 'calc(var(--chrome-bottom, 0px) + 1.5rem)' }}
+        >
           {user && (
             <div className="flex items-center gap-2 border-b border-white/5 pb-3">
               <NavLink to="/profile" className="flex min-w-0 flex-1 items-center gap-2">

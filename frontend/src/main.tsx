@@ -8,6 +8,7 @@ import { AuthProvider } from './context/AuthContext';
 import { FavoritesProvider } from './context/FavoritesContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { PlayerProvider } from './context/PlayerContext';
+import { PresenceProvider } from './context/PresenceContext';
 import './index.css';
 
 const queryClient = new QueryClient({
@@ -22,6 +23,20 @@ const queryClient = new QueryClient({
   },
 });
 
+/**
+ * Holds the page at 1x on touch devices.
+ *
+ * The viewport meta covers Android and the installed iOS PWA, but Safari on
+ * iOS has ignored `user-scalable=no` in a normal tab since iOS 10, so a pinch
+ * while scrolling a list would zoom the app and leave it panned off-centre.
+ * Safari fires its own non-standard `gesture*` events for a pinch — cancelling
+ * those stops the zoom without touching ordinary scrolling. `touch-action` in
+ * the stylesheet handles the double-tap case.
+ */
+for (const type of ['gesturestart', 'gesturechange', 'gestureend']) {
+  document.addEventListener(type, (event) => event.preventDefault(), { passive: false });
+}
+
 const container = document.getElementById('root');
 if (!container) throw new Error('Root element not found');
 
@@ -34,7 +49,10 @@ createRoot(container).render(
           <AuthProvider>
             <FavoritesProvider>
               <PlayerProvider>
-                <App />
+                {/* Presence reads the player and the session, so it sits inside both. */}
+                <PresenceProvider>
+                  <App />
+                </PresenceProvider>
               </PlayerProvider>
             </FavoritesProvider>
           </AuthProvider>

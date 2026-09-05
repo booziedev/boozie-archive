@@ -55,6 +55,15 @@ interface PersistedSession extends Playback {
 
 export interface PlayerContextValue extends Playback {
   current: Track | null;
+  /**
+   * The track the audio element is actually pointed at.
+   *
+   * Lags `current` by one effect: `current` changes as soon as the queue does,
+   * while this waits until the element has been re-pointed. Anything reporting
+   * "what is playing, and where" must key off this pair, or it will publish a
+   * new track id next to the previous track's position.
+   */
+  loadedTrackId: string | null;
   isPlaying: boolean;
   isLoading: boolean;
   currentTime: number;
@@ -67,12 +76,20 @@ export interface PlayerContextValue extends Playback {
 
   playTracks: (tracks: Track[], startIndex?: number) => void;
   playNow: (track: Track) => void;
+  /**
+   * Loads one track and starts it partway in. Used by listen-along to follow
+   * a host: it replaces the queue rather than adding to it, because a guest is
+   * mirroring someone else's player, not building their own.
+   */
+  playAt: (track: Track, seconds: number, autoplay?: boolean) => void;
   toggle: () => void;
   pause: () => void;
   next: () => void;
   previous: () => void;
   seek: (seconds: number) => void;
   skipBy: (seconds: number) => void;
+  /** The element's own position, which never lags behind React state. */
+  getPosition: () => number;
   setVolume: (value: number) => void;
   toggleMute: () => void;
   toggleShuffle: () => void;
@@ -128,6 +145,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
+  const [loadedTrackId, setLoadedTrackId] = useState<string | null>(null);
   const [duration, setDuration] = useState(0);
   const [volume, setVolumeState] = useState(readVolume);
   const [muted, setMuted] = useState(false);
@@ -222,11 +240,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       setIsPlaying(false);
       setCurrentTime(0);
       setDuration(0);
+      setLoadedTrackId(null);
       return;
     }
 
     const url = mediaUrl.stream(current.id);
     if (audio.src === url) {
+      setLoadedTrackId(current.id);
       if (autoplayRef.current) startElement();
       return;
     }
@@ -237,6 +257,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setDuration(current.duration ?? 0);
     audio.src = url;
     audio.load();
+    setLoadedTrackId(current.id);
     if (autoplayRef.current) startElement();
   }, [current, startElement]);
 
@@ -372,6 +393,29 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   const playNow = useCallback((track: Track) => playTracks([track], 0), [playTracks]);
 
+  const playAt = useCallback(
+    (track: Track, seconds: number, autoplay = true) => {
+      const target = Math.max(0, seconds);
+      autoplayRef.current = autoplay;
+      resumeTimeRef.current = target;
+      setPlayback({ queue: [track], order: [0], position: 0 });
+
+      // Already on this track: `current` doesn't change, so the load effect
+      // won't run — jump and start here instead, still inside whatever gesture
+      // called us, which is what lets iOS begin playback.
+      if (current?.id === track.id) {
+        const audio = audioRef.current;
+        if (audio) {
+          audio.currentTime = target;
+          setCurrentTime(target);
+          resumeTimeRef.current = 0;
+          if (autoplay) startElement();
+        }
+      }
+    },
+    [current?.id, startElement],
+  );
+
   const toggle = useCallback(() => {
     const audio = audioRef.current;
     if (!audio || !current) return;
@@ -393,6 +437,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     audio.currentTime = target;
     setCurrentTime(target);
   }, []);
+
+  const getPosition = useCallback(() => audioRef.current?.currentTime ?? 0, []);
 
   const skipBy = useCallback(
     (seconds: number) => {
@@ -540,6 +586,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       order,
       position,
       current,
+      loadedTrackId,
       isPlaying,
       isLoading,
       currentTime,
@@ -551,12 +598,14 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       error,
       playTracks,
       playNow,
+      playAt,
       toggle,
       pause,
       next,
       previous,
       seek,
       skipBy,
+      getPosition,
       setVolume,
       toggleMute: () => setMuted((value) => !value),
       toggleShuffle,
@@ -574,13 +623,16 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       duration,
       enqueue,
       error,
+      getPosition,
       isLoading,
       isPlaying,
       jumpTo,
+      loadedTrackId,
       muted,
       next,
       order,
       pause,
+      playAt,
       playNow,
       playTracks,
       position,

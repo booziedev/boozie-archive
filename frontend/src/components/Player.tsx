@@ -7,11 +7,14 @@ import {
   Loader2,
   Pause,
   Play,
+  Radio,
+  RefreshCw,
   Repeat,
   Repeat1,
   Shuffle,
   SkipBack,
   SkipForward,
+  Users,
   Volume1,
   Volume2,
   VolumeX,
@@ -24,6 +27,7 @@ import { SeekBar } from './SeekBar';
 import { mediaUrl } from '../lib/api';
 import { formatDuration, qualityLabel } from '../lib/format';
 import { usePlayer } from '../context/PlayerContext';
+import { usePresence } from '../context/PresenceContext';
 
 /**
  * The persistent transport bar.
@@ -34,6 +38,7 @@ import { usePlayer } from '../context/PlayerContext';
  */
 export function Player() {
   const player = usePlayer();
+  const { party, isFollowing, isHosting, outOfSync, leaveParty, resync } = usePresence();
   const [queueOpen, setQueueOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
 
@@ -50,7 +55,64 @@ export function Player() {
     error,
   } = player;
 
-  if (!current) return null;
+  /*
+   * A session with nothing playing yet still needs its bar: that is the state
+   * a host is in between pressing "listen together" and choosing a track, and
+   * without it there would be no way to leave.
+   */
+  const sessionBar = party?.live ? (
+    <div className="flex items-center gap-2 border-b border-accent-500/20 bg-accent-500/10 px-3 py-1.5 sm:px-4">
+      <Radio size={13} className="shrink-0 text-accent-300" />
+      <span className="min-w-0 flex-1 truncate text-xs text-zinc-300">
+        {isHosting ? (
+          <>
+            <span className="font-semibold text-accent-200">Hosting</span> — {party.listeners.length}{' '}
+            {party.listeners.length === 1 ? 'listener' : 'listeners'}
+          </>
+        ) : (
+          <>
+            Listening along with{' '}
+            <span className="font-semibold text-accent-200">
+              {party.hostDisplayName || party.hostUsername}
+            </span>
+          </>
+        )}
+      </span>
+
+      {isHosting && party.listeners.length > 1 && (
+        <span className="hidden shrink-0 items-center gap-1 text-xs text-zinc-500 sm:flex">
+          <Users size={12} />
+          {party.listeners
+            .filter((listener) => listener.id !== party.hostId)
+            .map((listener) => listener.displayName || listener.username)
+            .join(', ')}
+        </span>
+      )}
+
+      {isFollowing && outOfSync && (
+        <button type="button" onClick={resync} className="btn-ghost shrink-0 px-2.5 py-1 text-xs">
+          <RefreshCw size={12} />
+          Resync
+        </button>
+      )}
+
+      <button
+        type="button"
+        onClick={() => void leaveParty()}
+        className="btn-ghost shrink-0 px-2.5 py-1 text-xs"
+      >
+        {isHosting ? 'End session' : 'Leave'}
+      </button>
+    </div>
+  ) : null;
+
+  if (!current) {
+    return sessionBar ? (
+      <div className="border-t border-white/5 bg-ink-900/80 backdrop-blur-2xl animate-slide-up">
+        {sessionBar}
+      </div>
+    ) : null;
+  }
 
   const effectiveDuration = duration || current.duration || 0;
   const coverId = current.coverId ?? current.albumId;
@@ -61,7 +123,10 @@ export function Player() {
         type="button"
         onClick={player.toggleShuffle}
         aria-pressed={shuffle}
-        title="Shuffle"
+        // While following, the host's queue is the queue: shuffling or skipping
+        // would only be undone by the next sync tick.
+        disabled={isFollowing}
+        title={isFollowing ? 'The host controls the queue' : 'Shuffle'}
         className={`icon-btn ${size === 'lg' ? '' : 'hidden sm:inline-flex'} ${
           shuffle ? 'text-accent-400 hover:text-accent-300' : ''
         }`}
@@ -69,7 +134,13 @@ export function Player() {
         <Shuffle size={size === 'lg' ? 20 : 17} />
       </button>
 
-      <button type="button" onClick={player.previous} title="Previous" className="icon-btn">
+      <button
+        type="button"
+        onClick={player.previous}
+        disabled={isFollowing}
+        title={isFollowing ? 'The host controls the queue' : 'Previous'}
+        className="icon-btn"
+      >
         <SkipBack size={size === 'lg' ? 26 : 19} className="fill-current" />
       </button>
 
@@ -90,7 +161,13 @@ export function Player() {
         )}
       </button>
 
-      <button type="button" onClick={player.next} title="Next" className="icon-btn">
+      <button
+        type="button"
+        onClick={player.next}
+        disabled={isFollowing}
+        title={isFollowing ? 'The host controls the queue' : 'Next'}
+        className="icon-btn"
+      >
         <SkipForward size={size === 'lg' ? 26 : 19} className="fill-current" />
       </button>
 
@@ -98,7 +175,8 @@ export function Player() {
         type="button"
         onClick={player.cycleRepeat}
         aria-pressed={repeat !== 'off'}
-        title={`Repeat: ${repeat}`}
+        disabled={isFollowing}
+        title={isFollowing ? 'The host controls the queue' : `Repeat: ${repeat}`}
         className={`icon-btn ${size === 'lg' ? '' : 'hidden sm:inline-flex'} ${
           repeat !== 'off' ? 'text-accent-400 hover:text-accent-300' : ''
         }`}
@@ -118,7 +196,7 @@ export function Player() {
         max={effectiveDuration}
         onCommit={player.seek}
         ariaLabel="Seek"
-        disabled={effectiveDuration <= 0}
+        disabled={effectiveDuration <= 0 || isFollowing}
         className="flex-1"
       />
       <span className="w-10 shrink-0 text-[11px] tabular-nums text-zinc-500">
@@ -208,6 +286,7 @@ export function Player() {
         reserve exactly that much space.
       */}
       <div className="border-t border-white/5 bg-ink-900/80 backdrop-blur-2xl animate-slide-up">
+        {sessionBar}
         {error && (
           <p className="bg-red-500/15 px-4 py-1.5 text-center text-xs text-red-300">{error}</p>
         )}

@@ -7,15 +7,18 @@ import {
   Loader2,
   MessageSquare,
   Palette,
+  Radio,
   UserMinus,
   UserPlus,
 } from 'lucide-react';
 
 import { Avatar } from '../components/Avatar';
+import { ListeningNow } from '../components/ListeningNow';
 import { PageHeader } from '../components/PageHeader';
 import { ErrorState } from '../components/states';
-import { social } from '../lib/api';
+import { presence, social } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
+import { usePresence } from '../context/PresenceContext';
 import { formatDate } from '../lib/format';
 import type { PublicProfile } from '../lib/types';
 
@@ -37,6 +40,10 @@ export function ProfilePage() {
   const profileQuery = useQuery({
     queryKey: isSelf ? ['profile', 'me'] : ['profile', username],
     queryFn: () => (isSelf ? social.myProfile() : social.profile(username!)),
+    // Someone else's page carries their current track, so it is worth keeping
+    // fresh while it is open. Your own has nothing that changes behind you.
+    refetchInterval: isSelf ? false : 15_000,
+    refetchIntervalInBackground: false,
   });
 
   const profile = profileQuery.data?.profile;
@@ -333,7 +340,11 @@ function OtherProfile({ profile }: { profile: PublicProfile }) {
               {profile.displayName || profile.username}
             </h1>
             <p className="truncate text-sm text-zinc-500">@{profile.username}</p>
-            <p className="mt-1 text-xs text-zinc-600">Joined {formatDate(profile.createdAt)}</p>
+            {profile.listeningNow ? (
+              <ListeningNow now={profile.listeningNow} className="mt-1.5" />
+            ) : (
+              <p className="mt-1 text-xs text-zinc-600">Joined {formatDate(profile.createdAt)}</p>
+            )}
           </div>
         </div>
 
@@ -350,6 +361,7 @@ function OtherProfile({ profile }: { profile: PublicProfile }) {
                 <MessageSquare size={15} />
                 Message
               </Link>
+              <InviteToListenButton profile={profile} />
               <button type="button" onClick={() => remove.mutate()} className="btn-ghost">
                 <UserMinus size={15} />
                 Remove friend
@@ -385,5 +397,53 @@ function OtherProfile({ profile }: { profile: PublicProfile }) {
         {error && <p className="relative mt-3 text-xs text-red-400">{error}</p>}
       </section>
     </div>
+  );
+}
+
+/**
+ * Starts a listen-along session if there isn't one, then sends this friend the
+ * invite as a direct message.
+ *
+ * Hosting is implicit on purpose: "invite them" is the thing anyone actually
+ * wants to do, and making them start a session first would be a step with no
+ * meaning of its own.
+ */
+function InviteToListenButton({ profile }: { profile: PublicProfile }) {
+  const { party, isFollowing, startParty } = usePresence();
+  const [state, setState] = useState<'idle' | 'sending' | 'sent'>('idle');
+  const [failure, setFailure] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (state !== 'sent') return;
+    const timer = window.setTimeout(() => setState('idle'), 3000);
+    return () => window.clearTimeout(timer);
+  }, [state]);
+
+  // Following someone means their player is driving yours; hosting at the same
+  // time would put two hosts on one audio element.
+  if (isFollowing) return null;
+
+  async function invite() {
+    setFailure(null);
+    setState('sending');
+    try {
+      const hosting = party?.isHost && party.live ? party : await startParty();
+      if (!hosting) throw new Error('Could not start a listening session.');
+      await presence.invite(hosting.id, profile.id);
+      setState('sent');
+    } catch (inviteError) {
+      setState('idle');
+      setFailure(inviteError instanceof Error ? inviteError.message : 'Could not send the invite.');
+    }
+  }
+
+  return (
+    <>
+      <button type="button" onClick={() => void invite()} disabled={state === 'sending'} className="btn-ghost">
+        {state === 'sending' ? <Loader2 size={15} className="animate-spin" /> : <Radio size={15} />}
+        {state === 'sent' ? 'Invite sent' : 'Listen together'}
+      </button>
+      {failure && <span className="text-xs text-red-400">{failure}</span>}
+    </>
   );
 }
