@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { NavLink } from 'react-router-dom';
-import { LogOut, MessageSquare, Settings, Shield, UserRound } from 'lucide-react';
+import { Lightbulb, LogOut, MessageSquare, Settings, Shield, UserRound } from 'lucide-react';
 
 import { Avatar } from './Avatar';
 import { useAuth } from '../context/AuthContext';
@@ -57,6 +57,7 @@ export function AccountMenu({ profile, badges }: AccountMenuProps) {
     { to: '/profile', label: 'Your profile', icon: UserRound, badge: 0 },
     { to: '/friends', label: 'Friends', icon: UserRound, badge: badges.friendRequests },
     { to: '/messages', label: 'Messages', icon: MessageSquare, badge: badges.messages },
+    { to: '/suggestions', label: 'Suggestions', icon: Lightbulb, badge: 0 },
     ...(isAdmin ? [{ to: '/admin', label: 'Admin panel', icon: Shield, badge: 0 }] : []),
     { to: '/settings', label: 'Settings', icon: Settings, badge: 0 },
   ];

@@ -104,10 +104,10 @@ export function AuthPage() {
     'focus:ring-2 focus:ring-accent-500/20';
 
   return (
-    <div className="relative flex min-h-[100dvh] items-center justify-center px-4 py-10">
+    <div className="relative flex min-h-[100dvh] items-center justify-center px-4 py-10 overflow-hidden">
       <div
         aria-hidden
-        className="pointer-events-none absolute left-1/2 top-0 h-[32rem] w-[32rem] -translate-x-1/2 rounded-full bg-accent-500/15 blur-3xl"
+        className="pointer-events-none absolute left-1/2 top-0 h-[32rem] w-[min(32rem,100vw)] -translate-x-1/2 rounded-full bg-accent-500/15 blur-3xl"
       />
 
       <div className="relative w-full max-w-md animate-fade-up">

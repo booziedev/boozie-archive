@@ -5,10 +5,12 @@ import {
   Heart,
   Home,
   LogOut,
+  Lightbulb,
   MessageSquare,
   Music2,
   Settings,
   Shield,
+  Wrench,
   UserRound,
   Users,
   Loader2,
@@ -19,6 +21,7 @@ import { SearchBar } from './SearchBar';
 import { useQuery } from '@tanstack/react-query';
 
 import { AccountMenu } from './AccountMenu';
+import { AnnouncementBanner } from './AnnouncementBanner';
 import { Avatar } from './Avatar';
 import { social } from '../lib/api';
 import { useStats } from '../hooks/useLibrary';
@@ -39,6 +42,7 @@ const NAV = [
 const SOCIAL_NAV = [
   { to: '/friends', label: 'Friends', icon: UserRound, badge: 'friendRequests' as const },
   { to: '/messages', label: 'Messages', icon: MessageSquare, badge: 'messages' as const },
+  { to: '/suggestions', label: 'Suggestions', icon: Lightbulb, badge: null },
 ] as const;
 
 /** Small count pill shown next to a nav entry. */
@@ -55,7 +59,7 @@ function NavBadge({ count }: { count: number }) {
 export function Layout() {
   const { data: stats } = useStats();
   const { favorites } = useFavorites();
-  const { user, isAdmin, signOut } = useAuth();
+  const { user, isAdmin, info, signOut } = useAuth();
   const location = useLocation();
 
   // Polled so a new message or friend request shows up without a refresh.
@@ -199,7 +203,7 @@ export function Layout() {
                       />
                       <Icon size={18} strokeWidth={2} />
                       {label}
-                      <NavBadge count={badges[badge]} />
+                      {badge && <NavBadge count={badges[badge]} />}
                     </>
                   )}
                 </NavLink>
@@ -301,6 +305,21 @@ export function Layout() {
         </header>
 
         {/* Bottom padding tracks the measured chrome, with a floor for first paint. */}
+        <AnnouncementBanner />
+
+        {/* Admins keep browsing during maintenance; this is the reminder. */}
+        {isAdmin && info?.maintenance?.enabled && (
+          <div className="border-b border-amber-400/20 bg-amber-400/10">
+            <div className="mx-auto flex max-w-[1800px] items-center gap-2 px-4 py-2 text-xs text-amber-200 sm:px-6">
+              <Wrench size={13} className="shrink-0" />
+              Maintenance mode is on — members can't reach the archive.
+              <NavLink to="/admin" className="ml-auto shrink-0 font-semibold underline">
+                Manage
+              </NavLink>
+            </div>
+          </div>
+        )}
+
         <main
           className="mx-auto max-w-[1800px] px-4 pt-6 sm:px-6 lg:pt-8"
           style={{ paddingBottom: 'calc(var(--chrome-bottom, 8rem) + 2rem)' }}

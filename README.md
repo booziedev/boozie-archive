@@ -14,6 +14,8 @@ A personal music archiv
   any album, artist or track into a conversation
 - **Profiles** with uploadable picture/GIF avatars, a display name, bio and accent
 - **Themeable UI** — hue slider or hex accent, plus animated gradient backgrounds
+- **Maintenance mode**, a **global announcement**, and a **suggestions** queue where
+  members propose features or upload tracks for an admin to approve
 - Installable from **Safari on iOS** as a full-screen app with lock-screen controls
 
 ## Guides

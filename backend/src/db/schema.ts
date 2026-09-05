@@ -150,4 +150,59 @@ export const migrations: Migration[] = [
       );
     `,
   },
+  {
+    id: '003_site_settings_and_suggestions',
+    sql: /* sql */ `
+      -- Small key/value store for things an admin flips at runtime:
+      -- maintenance mode and the global announcement.
+      CREATE TABLE IF NOT EXISTS app_settings (
+        key        text PRIMARY KEY,
+        value      jsonb NOT NULL,
+        updated_at timestamptz NOT NULL DEFAULT now(),
+        updated_by uuid REFERENCES users(id) ON DELETE SET NULL
+      );
+
+      -- Member suggestions: a feature idea, or an audio file proposed for the
+      -- collection. Uploaded files are quarantined outside MUSIC_ROOT until an
+      -- admin accepts them, so nothing unreviewed is ever scanned or served.
+      CREATE TABLE IF NOT EXISTS suggestions (
+        id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id     uuid REFERENCES users(id) ON DELETE SET NULL,
+        kind        text NOT NULL CHECK (kind IN ('feature', 'track')),
+        body        text,
+        -- What the member called it, kept only for display.
+        file_name   text,
+        -- Random name in the quarantine directory; never user-controlled.
+        stored_file text,
+        mime        text,
+        bytes       bigint,
+        status      text NOT NULL DEFAULT 'pending'
+                    CHECK (status IN ('pending', 'accepted', 'denied')),
+        review_note text,
+        reviewed_by uuid REFERENCES users(id) ON DELETE SET NULL,
+        reviewed_at timestamptz,
+        -- Where it landed in the library once accepted.
+        library_path text,
+        created_at  timestamptz NOT NULL DEFAULT now(),
+        CONSTRAINT suggestions_has_content
+          CHECK (body IS NOT NULL OR stored_file IS NOT NULL)
+      );
+
+      CREATE INDEX IF NOT EXISTS suggestions_status_idx
+        ON suggestions (status, created_at DESC);
+      CREATE INDEX IF NOT EXISTS suggestions_user_idx ON suggestions (user_id);
+    `,
+  },
+  {
+    id: '004_suggestion_content_check',
+    sql: /* sql */ `
+      -- Denying an upload deletes the file and clears stored_file, which left a
+      -- track suggestion carrying neither a body nor a file. A track row is
+      -- meaningful on its own — it still records who proposed what, and when —
+      -- so the constraint now allows it.
+      ALTER TABLE suggestions DROP CONSTRAINT IF EXISTS suggestions_has_content;
+      ALTER TABLE suggestions ADD CONSTRAINT suggestions_has_content
+        CHECK (body IS NOT NULL OR stored_file IS NOT NULL OR kind = 'track');
+    `,
+  },
 ];

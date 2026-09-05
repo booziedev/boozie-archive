@@ -101,6 +101,35 @@ GIF and emoji **searches are proxied through the Pi**. The API keys stay on the
 server, and Giphy/Tenor/emoji.gg never see a member's IP or what they searched
 for. Remote images are requested with `referrerPolicy="no-referrer"`.
 
+## How member uploads are handled
+
+Members can suggest audio for the collection. Nothing they send reaches the
+library on its own:
+
+- uploads are streamed straight to a **quarantine directory under `DATA_DIR`**,
+  never inside `MUSIC_ROOT` — so an unreviewed file is not indexed by the
+  scanner, not streamable and not downloadable by anyone;
+- only `.mp3`, `.flac`, `.wav` and `.m4a` are accepted, and the extension alone
+  is not trusted: the file's first bytes are matched against that format's
+  signature (ID3/MPEG sync, `fLaC`, `RIFF….WAVE`, `ftyp` with an audio brand).
+  A shell script named `.mp3`, an HTML file named `.flac`, and an MP3 renamed
+  `.wav` are all rejected, and the file is deleted immediately;
+- the stored name is 32 random hex characters plus the verified extension, so
+  nothing user-supplied ever becomes a path;
+- an admin can stream the quarantined file to listen before deciding — that
+  route is admin-only and the only way to reach the file;
+- **accepting** is the sole path into the library: the file is moved into a
+  dedicated folder under `MUSIC_ROOT` under a name rebuilt from the sanitised
+  original (no directories, no control characters, never overwriting an
+  existing track), and a rescan is queued. **Denying** deletes the file;
+- size is capped by `SUGGESTION_MAX_BYTES` (150 MB) and uploads are rate-limited
+  per member per hour. Files stream to disk rather than being buffered in
+  memory, so a large upload can't exhaust the Pi's RAM.
+
+Maintenance mode is enforced server-side, not just in the UI: while it is on the
+API returns 503 to every non-admin request. Admins are exempt — otherwise
+whoever switched it on could not switch it off — and registration is paused.
+
 ## Everything else
 
 - **Path traversal**: every filesystem read resolves the path and verifies it is

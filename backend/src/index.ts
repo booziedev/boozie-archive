@@ -17,6 +17,8 @@ import { authRoutes, inviteThrottle, loginThrottle } from './routes/auth.js';
 import { mediaRoutes } from './routes/media.js';
 import { socialRoutes } from './routes/social.js';
 import { stickerRoutes } from './routes/stickers.js';
+import { suggestionRoutes } from './routes/suggestions.js';
+import { getSettings, loadSettings } from './lib/settings.js';
 
 /** Returns the first candidate directory that contains a built index.html. */
 async function findFrontendDist(): Promise<string | null> {
@@ -64,7 +66,9 @@ async function main() {
   // Profile picture uploads. One small file per request; the route validates
   // the bytes themselves before anything is written.
   await app.register(multipart, {
-    limits: { fileSize: config.avatarMaxBytes, files: 1, fields: 4 },
+    // The ceiling is the largest thing any route accepts (a suggested track);
+    // each route passes its own tighter limit to request.file().
+    limits: { fileSize: config.suggestionMaxBytes, files: 1, fields: 6 },
   });
 
   /**
@@ -196,6 +200,23 @@ async function main() {
 
       if (!pathname.startsWith('/api/')) return; // static assets and the SPA shell
       if (isPublicPath(pathname)) return;
+
+      /**
+       * Maintenance mode.
+       *
+       * Admins keep working normally — otherwise whoever switched it on could
+       * not switch it off. Everyone else gets 503 with a code the client turns
+       * into the /maintenance page. The auth endpoints stay open above, so an
+       * admin can still sign in while the archive is closed.
+       */
+      const maintenance = getSettings().maintenance;
+      if (maintenance.enabled && request.user?.role !== 'admin') {
+        return reply.code(503).send({
+          error: maintenance.message,
+          code: 'maintenance',
+        });
+      }
+
       if (config.allowPublicBrowse && request.method === 'GET') return;
 
       if (!request.user) {
@@ -230,6 +251,7 @@ async function main() {
     // Friends, DMs and the GIF/emoji picker only exist when there are accounts.
     await app.register(socialRoutes, { prefix: '/api' });
     await app.register(stickerRoutes, { prefix: '/api' });
+    await app.register(suggestionRoutes, { prefix: '/api' });
   }
   await app.register(apiRoutes, { prefix: '/api' });
   await app.register(mediaRoutes, { prefix: '/api' });
@@ -328,6 +350,10 @@ async function main() {
           '  Or set AUTH_ENABLED=false in backend/.env to run without accounts.',
       );
       process.exit(1);
+    }
+    await loadSettings();
+    if (getSettings().maintenance.enabled) {
+      app.log.warn('Maintenance mode is ON — only admins can reach the archive.');
     }
     app.log.info('Accounts enabled — registration requires an invite code.');
   } else {

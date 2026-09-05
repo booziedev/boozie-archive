@@ -14,6 +14,7 @@ import {
   Users,
 } from 'lucide-react';
 
+import { AdminSiteControls } from '../components/AdminSiteControls';
 import { PageHeader, SectionHeader } from '../components/PageHeader';
 import { EmptyState, ErrorState } from '../components/states';
 import { admin } from '../lib/api';
@@ -207,6 +208,8 @@ export function AdminPage() {
           {actionError}
         </p>
       )}
+
+      <AdminSiteControls />
 
       {/* ------------------------------ create ---------------------------- */}
       <section className="surface p-5">

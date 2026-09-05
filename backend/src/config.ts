@@ -70,6 +70,20 @@ export const config = {
   avatarDir: path.join(dataDir, 'avatars'),
   /** Largest profile picture accepted, in bytes. Animated GIFs get sizeable. */
   avatarMaxBytes: int('AVATAR_MAX_BYTES', 5 * 1024 * 1024),
+  /**
+   * Suggested audio waits here — deliberately outside MUSIC_ROOT, so a file
+   * nobody has reviewed is never indexed, streamed or downloadable.
+   */
+  suggestionDir: path.join(dataDir, 'suggestions'),
+  /** Largest suggested audio file, in bytes. A long lossless track is big. */
+  suggestionMaxBytes: int('SUGGESTION_MAX_BYTES', 150 * 1024 * 1024),
+  /** Uploads one member may submit per hour. */
+  suggestionUploadsPerHour: int('SUGGESTION_UPLOADS_PER_HOUR', 10),
+  /**
+   * Folder inside MUSIC_ROOT that accepted files are filed under, so they are
+   * easy to find and re-tag later.
+   */
+  suggestionInbox: str('SUGGESTION_INBOX', 'Suggested'),
 
   /**
    * Allowed browser origins. "*" allows any origin, which is what you want

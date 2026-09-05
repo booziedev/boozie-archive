@@ -119,6 +119,9 @@ export interface AuthContextInfo {
   needsSetup: boolean;
   allowPublicBrowse: boolean;
   minPasswordLength?: number;
+  /** Site state, readable even while the archive is closed. */
+  maintenance?: { enabled: boolean; message: string };
+  announcement?: { message: string; version: number } | null;
 }
 
 export type InviteStatus = 'active' | 'disabled' | 'expired' | 'exhausted';
@@ -214,4 +217,42 @@ export interface StickerProviders {
   giphy: boolean;
   tenor: boolean;
   emojiGg: boolean;
+}
+
+// --- site settings and suggestions -----------------------------------------
+
+export interface MaintenanceState {
+  enabled: boolean;
+  message: string;
+}
+
+export interface AnnouncementState {
+  message: string;
+  /** Bumped on every edit, so dismissing one doesn't hide the next. */
+  version: number;
+}
+
+export interface SiteSettings {
+  maintenance: MaintenanceState;
+  announcement: { enabled: boolean; message: string; version: number; updatedAt: string | null };
+}
+
+export type SuggestionKind = 'feature' | 'track';
+export type SuggestionStatus = 'pending' | 'accepted' | 'denied';
+
+export interface Suggestion {
+  id: string;
+  kind: SuggestionKind;
+  body: string | null;
+  fileName: string | null;
+  mime: string | null;
+  bytes: number | null;
+  status: SuggestionStatus;
+  reviewNote: string | null;
+  reviewedAt: string | null;
+  reviewedBy: string | null;
+  libraryPath: string | null;
+  createdAt: string;
+  author: string | null;
+  authorId: string | null;
 }

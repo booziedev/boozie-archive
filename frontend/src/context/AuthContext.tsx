@@ -20,6 +20,8 @@ interface AuthContextValue {
   isAdmin: boolean;
   /** True when the archive requires an account and nobody is signed in. */
   needsAuth: boolean;
+  /** True when maintenance is on and this viewer is not an admin. */
+  lockedOut: boolean;
   signIn: (username: string, password: string) => Promise<void>;
   signUp: (input: { username: string; password: string; inviteCode?: string }) => Promise<void>;
   signOut: () => Promise<void>;
@@ -34,7 +36,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const contextQuery = useQuery({
     queryKey: ['auth', 'context'],
     queryFn: auth.context,
-    staleTime: 60_000,
+    staleTime: 30_000,
+    // Polled so maintenance mode and a new announcement reach people who are
+    // already sitting on a page, without them having to reload.
+    refetchInterval: 60_000,
     retry: 1,
   });
 
@@ -104,9 +109,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<AuthContextValue>(() => {
     const authRequired = Boolean(info?.authEnabled) && !info?.allowPublicBrowse;
+    const maintenanceOn = Boolean(info?.maintenance?.enabled);
     return {
       user,
       info,
+      lockedOut: maintenanceOn && user?.role !== 'admin',
       isLoading: contextQuery.isLoading || meQuery.isLoading,
       isAdmin: user?.role === 'admin',
       needsAuth: authRequired && !user,

@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 
 import { config } from '../config.js';
+import { getSettings } from '../lib/settings.js';
 import {
   AuthError,
   changePassword,
@@ -110,8 +111,18 @@ export const authRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
    * becomes the admin.
    */
   app.get('/auth/context', async () => {
+    const { maintenance, announcement } = getSettings();
+    // Reachable during maintenance on purpose: it is how the client learns to
+    // show the maintenance page rather than a wall of failed requests.
+    const site = {
+      maintenance: { enabled: maintenance.enabled, message: maintenance.message },
+      announcement: announcement.enabled
+        ? { message: announcement.message, version: announcement.version }
+        : null,
+    };
+
     if (!config.authEnabled) {
-      return { authEnabled: false, needsSetup: false, allowPublicBrowse: true };
+      return { authEnabled: false, needsSetup: false, allowPublicBrowse: true, ...site };
     }
     const users = await countUsers();
     return {
@@ -119,6 +130,7 @@ export const authRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
       needsSetup: users === 0,
       allowPublicBrowse: config.allowPublicBrowse,
       minPasswordLength: config.minPasswordLength,
+      ...site,
     };
   });
 
@@ -134,6 +146,13 @@ export const authRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
       password?: string;
       inviteCode?: string;
     };
+
+    if (getSettings().maintenance.enabled) {
+      return reply.code(503).send({
+        error: 'The archive is closed for maintenance — new accounts are paused.',
+        code: 'maintenance',
+      });
+    }
 
     const throttleKey = `register:${clientIp(request)}`;
     inviteThrottle.check(throttleKey);

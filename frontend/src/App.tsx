@@ -10,6 +10,7 @@ import { AlbumsPage } from './pages/AlbumsPage';
 import { ArtistPage } from './pages/ArtistPage';
 import { AuthPage } from './pages/AuthPage';
 import { FriendsPage } from './pages/FriendsPage';
+import { MaintenancePage } from './pages/MaintenancePage';
 import { MessagesPage } from './pages/MessagesPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { ArtistsPage } from './pages/ArtistsPage';
@@ -18,6 +19,7 @@ import { HomePage } from './pages/HomePage';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { SearchPage } from './pages/SearchPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { SuggestionsPage } from './pages/SuggestionsPage';
 import { TracksPage } from './pages/TracksPage';
 
 /**
@@ -69,7 +71,7 @@ function RequireAdmin({ children }: { children: ReactNode }) {
 }
 
 export function App() {
-  const { needsAuth, isLoading } = useAuth();
+  const { needsAuth, isLoading, lockedOut } = useAuth();
 
   // Wait for the session check before deciding what to render, so a signed-in
   // visitor never sees the login screen flash on a reload.
@@ -78,6 +80,21 @@ export function App() {
       <div className="flex min-h-[100dvh] items-center justify-center">
         <Disc3 size={28} className="animate-spin text-accent-500" style={{ animationDuration: '2.4s' }} />
       </div>
+    );
+  }
+
+  /**
+   * Maintenance mode. Checked before the sign-in gate so a signed-out visitor
+   * sees why the archive is closed rather than a login form that would fail.
+   * Admins skip this entirely — otherwise nobody could switch it back off.
+   */
+  if (lockedOut) {
+    return (
+      <ErrorBoundary>
+        <Routes>
+          <Route path="*" element={<MaintenancePage />} />
+        </Routes>
+      </ErrorBoundary>
     );
   }
 
@@ -112,7 +129,10 @@ export function App() {
           <Route path="/messages/:friendId" element={<MessagesPage />} />
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/u/:username" element={<ProfilePage />} />
+          <Route path="/suggestions" element={<SuggestionsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          {/* Reachable while the site is open, so a bookmark still works. */}
+          <Route path="/maintenance" element={<MaintenancePage />} />
           <Route
             path="/admin"
             element={

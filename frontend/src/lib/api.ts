@@ -19,8 +19,10 @@ import type {
   PendingProfile,
   PublicProfile,
   SearchResults,
+  SiteSettings,
   SortKey,
   StickerProviders,
+  Suggestion,
   ThreadSummary,
   Track,
 } from './types';
@@ -137,7 +139,59 @@ export const auth = {
     jsonRequest<{ ok: true }>('/api/auth/password', 'POST', { currentPassword, newPassword }),
 };
 
+export const suggestions = {
+  mine: () =>
+    request<{ suggestions: Suggestion[]; accepts: string[]; maxBytes: number }>(
+      '/api/suggestions/mine',
+    ),
+  create: (body: string) =>
+    jsonRequest<{ suggestion: Suggestion }>('/api/suggestions', 'POST', { body }),
+  upload: (file: File, note: string) => {
+    const form = new FormData();
+    // The note goes first so the server has it by the time the file arrives.
+    form.append('note', note);
+    form.append('file', file);
+    return request<{ suggestion: Suggestion }>('/api/suggestions/upload', {
+      method: 'POST',
+      headers: { 'X-Requested-With': 'boozie-archive' },
+      body: form,
+    });
+  },
+};
+
 export const admin = {
+  settings: () =>
+    request<{ settings: SiteSettings; pendingSuggestions: number }>('/api/admin/settings'),
+  setMaintenance: (enabled: boolean, message?: string) =>
+    jsonRequest<{ settings: SiteSettings }>('/api/admin/settings/maintenance', 'PUT', {
+      enabled,
+      message,
+    }),
+  setAnnouncement: (enabled: boolean, message: string) =>
+    jsonRequest<{ settings: SiteSettings }>('/api/admin/settings/announcement', 'PUT', {
+      enabled,
+      message,
+    }),
+
+  suggestions: (status?: string) =>
+    request<{ suggestions: Suggestion[] }>(
+      `/api/admin/suggestions${status ? `?status=${encodeURIComponent(status)}` : ''}`,
+    ),
+  /** Streams a quarantined upload so it can be listened to before deciding. */
+  suggestionFileUrl: (id: string) => apiUrl(`/api/admin/suggestions/${encodeURIComponent(id)}/file`),
+  acceptSuggestion: (id: string, note?: string) =>
+    jsonRequest<{ suggestion: Suggestion }>(
+      `/api/admin/suggestions/${encodeURIComponent(id)}/accept`,
+      'POST',
+      { note },
+    ),
+  denySuggestion: (id: string, note?: string) =>
+    jsonRequest<{ suggestion: Suggestion }>(
+      `/api/admin/suggestions/${encodeURIComponent(id)}/deny`,
+      'POST',
+      { note },
+    ),
+
   invites: () => request<{ invites: Invite[] }>('/api/admin/invites'),
   createInvite: (input: { label?: string; expiresInSeconds: number | null; maxUses: number | null }) =>
     jsonRequest<{ invite: Invite }>('/api/admin/invites', 'POST', input),
