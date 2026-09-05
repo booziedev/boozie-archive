@@ -84,10 +84,4 @@ for (const target of TARGETS) {
   console.log(`  wrote icons/${target.file} (${target.size}px)`);
 }
 
-// The .svg is only a placeholder mark; a real logo supersedes it.
-const svg = path.join(iconsDir, 'icon.svg');
-if (fs.existsSync(svg)) {
-  console.log('\n  Note: icons/icon.svg is still referenced as a fallback in index.html.');
-}
-
 console.log('\nDone. Rebuild the frontend to publish them:\n  npm --prefix frontend run build\n');

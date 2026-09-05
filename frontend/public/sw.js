@@ -16,7 +16,7 @@ const ASSET_CACHE = `archive-assets-${VERSION}`;
 const COVER_CACHE = `archive-covers-${VERSION}`;
 const COVER_LIMIT = 400;
 
-const SHELL_URLS = ['/', '/index.html', '/manifest.webmanifest', '/icons/icon.svg'];
+const SHELL_URLS = ['/', '/index.html', '/manifest.webmanifest', '/icons/favicon-32.png'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
