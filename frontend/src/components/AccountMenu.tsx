@@ -72,7 +72,7 @@ export function AccountMenu({ profile, badges }: AccountMenuProps) {
         aria-haspopup="menu"
         className="relative flex h-10 w-10 items-center justify-center rounded-full transition-transform active:scale-95"
       >
-        <Avatar profile={identity} size={32} ring />
+        <Avatar profile={identity} size={32} />
         {totalBadges > 0 && !open && (
           <span className="absolute right-0 top-0 h-2.5 w-2.5 rounded-full bg-accent-500 ring-2 ring-ink-950" />
         )}
@@ -84,7 +84,7 @@ export function AccountMenu({ profile, badges }: AccountMenuProps) {
           className="absolute right-0 top-full z-50 mt-2 w-56 overflow-hidden rounded-2xl border border-white/10 bg-ink-900/[0.98] shadow-2xl backdrop-blur-2xl animate-scale-in"
         >
           <div className="flex items-center gap-3 border-b border-white/5 px-3 py-3">
-            <Avatar profile={identity} size={38} ring />
+            <Avatar profile={identity} size={38} />
             <span className="min-w-0">
               <span className="block truncate text-sm font-semibold text-zinc-100">
                 {identity.displayName || identity.username}

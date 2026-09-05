@@ -8,7 +8,6 @@ import {
   Loader2,
   MessageSquare,
   Music2,
-  Radio,
   Send,
   Trash2,
   User,
@@ -20,9 +19,8 @@ import { ListeningNow } from '../components/ListeningNow';
 import { PageHeader } from '../components/PageHeader';
 import { EmptyState, ErrorState } from '../components/states';
 import { StickerPicker } from '../components/StickerPicker';
-import { presence, social } from '../lib/api';
+import { social } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
-import { usePresence } from '../context/PresenceContext';
 import type { Attachment, Message, ThreadSummary } from '../lib/types';
 
 /** "14:32" for today, "Mon 14:32" this week, else a date. */
@@ -41,107 +39,8 @@ function messageTime(iso: string): string {
   });
 }
 
-/**
- * A listen-along invite.
- *
- * The button checks the session is still live when it is pressed, so an old
- * invite scrolled back to says so instead of failing silently.
- */
-function PartyInvite({
-  partyId,
-  host,
-  mine,
-  friend,
-}: {
-  partyId: string;
-  host: string;
-  /** True on the sender's own screen — the same card, read from both ends. */
-  mine: boolean;
-  friend: string;
-}) {
-  const { party, joinParty, leaveParty } = usePresence();
-  const [error, setError] = useState<string | null>(null);
-  const [joining, setJoining] = useState(false);
-
-  const inThis = party?.id === partyId && party.live;
-  const hosting = Boolean(inThis && party?.isHost);
-
-  async function join() {
-    setError(null);
-    setJoining(true);
-    try {
-      await joinParty(partyId);
-    } catch (joinError) {
-      setError(joinError instanceof Error ? joinError.message : 'Could not join.');
-    } finally {
-      setJoining(false);
-    }
-  }
-
-  const line = hosting
-    ? `You're hosting — ${friend} can join from here.`
-    : inThis
-      ? `You're listening along with ${host}.`
-      : mine
-        ? `You invited ${friend} to listen along.`
-        : `${host} wants to listen along with you.`;
-
-  return (
-    <div className="mt-1.5 rounded-xl border border-accent-500/30 bg-accent-500/10 p-3">
-      <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-accent-300">
-        <Radio size={11} />
-        Listen together
-      </p>
-      <p className="mt-1 text-sm text-zinc-200">{line}</p>
-
-      {inThis ? (
-        <button
-          type="button"
-          onClick={() => void leaveParty()}
-          className="btn-ghost mt-2 px-3 py-1.5 text-xs"
-        >
-          {hosting ? 'End session' : 'Leave session'}
-        </button>
-      ) : mine ? (
-        // Your own invite to a session you are no longer in: nothing to join.
-        <p className="mt-1 text-xs text-white/50">That session has ended.</p>
-      ) : (
-        <button
-          type="button"
-          onClick={() => void join()}
-          disabled={joining}
-          className="btn-primary mt-2 px-3 py-1.5 text-xs"
-        >
-          {joining ? <Loader2 size={13} className="animate-spin" /> : <Radio size={13} />}
-          Join
-        </button>
-      )}
-      {error && <p className="mt-1.5 text-xs text-red-300">{error}</p>}
-    </div>
-  );
-}
-
 /** Renders a shared album/artist/track, a GIF or an emoji inside a bubble. */
-function AttachmentView({
-  attachment,
-  mine,
-  friend,
-}: {
-  attachment: Attachment;
-  mine: boolean;
-  friend: string;
-}) {
-  if (attachment.kind === 'party') {
-    return (
-      <PartyInvite
-        partyId={attachment.id}
-        host={attachment.name || 'A friend'}
-        mine={mine}
-        friend={friend}
-      />
-    );
-  }
-
+function AttachmentView({ attachment }: { attachment: Attachment }) {
   if (attachment.kind === 'gif') {
     return (
       <img
@@ -275,7 +174,7 @@ function Conversation({ thread }: { thread: ThreadSummary }) {
           <ArrowLeft size={18} />
         </Link>
         <Link to={`/u/${thread.friend.username}`} className="flex min-w-0 flex-1 items-center gap-3">
-          <Avatar profile={thread.friend} size={38} ring />
+          <Avatar profile={thread.friend} size={38} />
           <span className="min-w-0">
             <span className="block truncate text-sm font-semibold text-zinc-100">
               {thread.friend.displayName || thread.friend.username}
@@ -289,7 +188,6 @@ function Conversation({ thread }: { thread: ThreadSummary }) {
             )}
           </span>
         </Link>
-        <InviteToListen friendId={thread.friend.id} threadId={thread.id} />
       </header>
 
       <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain px-3 py-4">
@@ -321,13 +219,7 @@ function Conversation({ thread }: { thread: ThreadSummary }) {
                             {message.body}
                           </p>
                         )}
-                        {message.attachment && (
-                          <AttachmentView
-                            attachment={message.attachment}
-                            mine={mine}
-                            friend={thread.friend.displayName || thread.friend.username}
-                          />
-                        )}
+                        {message.attachment && <AttachmentView attachment={message.attachment} />}
                       </>
                     )}
                     <span
@@ -493,7 +385,7 @@ export function MessagesPage() {
                       active?.id === thread.id ? 'bg-white/[0.07]' : 'hover:bg-white/[0.03]'
                     }`}
                   >
-                    <Avatar profile={thread.friend} size={40} ring />
+                    <Avatar profile={thread.friend} size={40} />
                     <span className="min-w-0 flex-1">
                       <span className="flex items-center justify-between gap-2">
                         <span className="truncate text-sm font-medium text-zinc-100">
@@ -533,56 +425,5 @@ export function MessagesPage() {
         </section>
       </div>
     </div>
-  );
-}
-
-/**
- * "Listen together" in the conversation header.
- *
- * Pressing it starts a session if there isn't one and drops the invite into
- * this thread, so the whole thing is one tap from the chat you are already in.
- */
-function InviteToListen({ friendId, threadId }: { friendId: string; threadId: string }) {
-  const queryClient = useQueryClient();
-  const { party, isFollowing, startParty } = usePresence();
-  const [busy, setBusy] = useState(false);
-  const [failure, setFailure] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!failure) return;
-    const timer = window.setTimeout(() => setFailure(null), 4000);
-    return () => window.clearTimeout(timer);
-  }, [failure]);
-
-  // While following someone, your player is theirs to drive — you cannot host.
-  if (isFollowing) return null;
-
-  async function invite() {
-    setFailure(null);
-    setBusy(true);
-    try {
-      const hosting = party?.isHost && party.live ? party : await startParty();
-      if (!hosting) throw new Error('Could not start a listening session.');
-      await presence.invite(hosting.id, friendId);
-      await queryClient.invalidateQueries({ queryKey: ['dm', threadId] });
-      await queryClient.invalidateQueries({ queryKey: ['dm', 'threads'] });
-    } catch (inviteError) {
-      setFailure(inviteError instanceof Error ? inviteError.message : 'Could not send the invite.');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={() => void invite()}
-      disabled={busy}
-      title={failure ?? 'Invite them to listen along'}
-      aria-label="Invite them to listen along"
-      className={`icon-btn h-9 w-9 shrink-0 ${failure ? 'text-red-400' : ''}`}
-    >
-      {busy ? <Loader2 size={17} className="animate-spin" /> : <Radio size={17} />}
-    </button>
   );
 }

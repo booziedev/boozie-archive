@@ -27,7 +27,7 @@ import {
   unreadCount,
   updateProfile,
 } from '../lib/social.js';
-import { friendStatuses, statusFor } from '../lib/presence.js';
+import { canListenAlong, friendStatuses, statusFor } from '../lib/presence.js';
 
 /**
  * Friends, profiles and direct messages.
@@ -122,10 +122,14 @@ export const socialRoutes: FastifyPluginAsync = async (app: FastifyInstance) => 
     const { username } = request.params as { username: string };
     const profile = await getProfileByUsername(request.user!.id, username);
     if (!profile) return reply.code(404).send({ error: 'No such account.' });
-    // statusFor applies the owner's visibility setting, so this is null unless
-    // they have chosen to show it to someone standing where this viewer is.
-    const listeningNow = await statusFor(request.user!.id, profile.id);
-    return { profile: { ...profile, listeningNow } };
+    // Both fields apply the owner's own settings: the status is null unless
+    // they show it to someone standing where this viewer is, and the flag is
+    // what decides whether the Listen together button appears at all.
+    const [listeningNow, allowed] = await Promise.all([
+      statusFor(request.user!.id, profile.id),
+      canListenAlong(request.user!.id, profile.id),
+    ]);
+    return { profile: { ...profile, listeningNow, canListenAlong: allowed } };
   });
 
   app.get('/users/search', async (request) => {

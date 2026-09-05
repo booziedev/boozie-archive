@@ -13,10 +13,11 @@ A personal music archiv
 - **Friends and private messages**, with GIF/emoji support and one-tap sharing of
   any album, artist or track into a conversation
 - **Profiles** with uploadable picture/GIF avatars, a display name, bio and accent
-- **Listening now** — friends see what you have playing, updated as you skip and
-  marked as paused when you pause it, with per-account visibility in Settings
-- **Listen together** — invite a friend from a chat and your players stay in step;
-  the host's skips, pauses and seeks follow through to everyone listening along
+- **Listening now** — friends see what you have playing, updated as you skip, and
+  gone the moment you stop, with a per-account audience in Settings
+- **Listen together** — open a friend's profile while they're playing and press
+  Listen together; your player follows theirs, skips and pauses included, until
+  you start something of your own
 - **Themeable UI** — hue slider or hex accent, plus animated gradient backgrounds
 - **Maintenance mode**, a **global announcement**, and a **suggestions** queue where
   members propose features or upload tracks for an admin to approve

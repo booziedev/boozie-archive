@@ -6,10 +6,9 @@ import {
   getParty,
   getPrivacy,
   heartbeat,
-  inviteToParty,
   joinParty,
   leaveParty,
-  startParty,
+  listenAlongWith,
   updatePrivacy,
 } from '../lib/presence.js';
 
@@ -56,9 +55,16 @@ export const presenceRoutes: FastifyPluginAsync = async (app: FastifyInstance) =
     party: await currentParty(request.user!.id),
   }));
 
-  app.post('/parties', async (request, reply) => {
-    const party = await startParty(request.user!.id);
-    return reply.code(201).send({ party });
+  /**
+   * Starts listening along with somebody, from their profile.
+   *
+   * Their session is created here if this is the first listener — hosting is
+   * not something anyone opts into, so there is no endpoint for starting one.
+   */
+  app.post('/parties/listen-along', async (request, reply) => {
+    const body = (request.body ?? {}) as { userId?: string };
+    if (!body.userId) return reply.code(400).send({ error: 'Expected { userId }' });
+    return reply.code(201).send({ party: await listenAlongWith(request.user!.id, body.userId) });
   });
 
   app.get('/parties/:id', async (request) => {
@@ -76,11 +82,4 @@ export const presenceRoutes: FastifyPluginAsync = async (app: FastifyInstance) =
     return leaveParty(request.user!.id, id);
   });
 
-  /** Sends the invite to a friend as a direct message. */
-  app.post('/parties/:id/invite', async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const body = (request.body ?? {}) as { userId?: string };
-    if (!body.userId) return reply.code(400).send({ error: 'Expected { userId }' });
-    return inviteToParty(request.user!.id, id, body.userId);
-  });
 };

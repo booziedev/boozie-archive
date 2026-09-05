@@ -298,18 +298,14 @@ export const presence = {
     jsonRequest<PrivacySettings>('/api/presence/privacy', 'PATCH', patch),
 
   currentParty: () => request<{ party: PartyState | null }>('/api/parties/current'),
-  startParty: () => jsonRequest<{ party: PartyState }>('/api/parties', 'POST'),
+  /** Starts listening along with someone, from their profile. */
+  listenAlongWith: (userId: string) =>
+    jsonRequest<{ party: PartyState }>('/api/parties/listen-along', 'POST', { userId }),
   party: (id: string) => request<{ party: PartyState }>(`/api/parties/${encodeURIComponent(id)}`),
   joinParty: (id: string) =>
     jsonRequest<{ party: PartyState }>(`/api/parties/${encodeURIComponent(id)}/join`, 'POST'),
   leaveParty: (id: string) =>
     jsonRequest<{ ok: true }>(`/api/parties/${encodeURIComponent(id)}/leave`, 'POST'),
-  invite: (id: string, userId: string) =>
-    jsonRequest<{ threadId: string; message: Message }>(
-      `/api/parties/${encodeURIComponent(id)}/invite`,
-      'POST',
-      { userId },
-    ),
 };
 
 /** What the player sends up; the server fills in the timestamps. */

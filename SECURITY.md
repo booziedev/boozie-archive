@@ -72,23 +72,28 @@ admin can demote or delete themselves.
 
 ## How listening status and listen-along are protected
 
-- **Status visibility is the owner's choice**, stored on the account and applied
-  in the query itself rather than filtered afterwards: `everyone` (any account
-  here), `friends` (the default), `nobody`. Choosing `nobody` also deletes the
-  status already stored, so nothing lingers until it expires.
+- **Two audiences, both the owner's choice**, stored on the account and applied
+  inside the queries rather than filtered afterwards: who may see your current
+  track, and who may listen along with you. Each is `everyone` (any account
+  here), `friends` (the default), or `nobody`.
+- **A status exists only while something is playing.** Paused is not a state
+  anyone else can see, so a browser left open on a paused track shows nothing.
 - **A status expires on its own.** Rows older than `PRESENCE_TTL_SECONDS` (70)
   are never returned, so a browser that disappears simply stops being live and
   nothing has to run to clean up after it. Closing the tab retracts it at once.
+- **The row is always written; every rule is applied when it is read.** It is
+  the account's own now-playing state — it renders their status to whoever is
+  allowed to see it, and it seeds the session when somebody starts listening
+  along. Skipping the write for one setting would break the other. Nothing in it
+  reaches anyone the settings don't permit.
 - **The reporter is the session, never the request body.** A heartbeat records a
   status for whoever holds the cookie; a `userId` in the payload is ignored.
-- **A listen-along session is readable only by the host and their friends.** An
-  invite is how you find one; friendship is what authorises it, so a forwarded
-  or leaked session id gets the same `404` as one that was made up.
-- **Only the host can invite**, and only to their own live session. A friend who
-  has turned off `allow_party_invites` cannot be sent one.
-- **Invites go through the ordinary message path**, so the friends-only rule, the
-  rate limit and the thread's read state all apply exactly as they do to
-  anything else somebody sends.
+- **Joining is authorised by the host's setting, on every read.** A leaked
+  session id gets the same `404` as one that was made up, and membership is not
+  a standing permission: narrowing the audience shows existing listeners out on
+  their next poll or reload rather than leaving them attached.
+- **Nobody can start a session on someone else's behalf.** One comes into being
+  only when a permitted person presses Listen together on that host's profile.
 - The denormalised track labels in a status are length-capped, and the ids are
   shape-checked before storage, so a status can only ever render as text plus a
   cover request that fails closed on its own.

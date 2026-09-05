@@ -41,8 +41,8 @@ interface PresenceContextValue {
   outOfSync: boolean;
   error: string | null;
 
-  startParty: () => Promise<PartyState | null>;
-  joinParty: (partyId: string) => Promise<void>;
+  /** Starts listening along with someone, from their profile. */
+  listenAlongWith: (userId: string) => Promise<void>;
   leaveParty: () => Promise<void>;
   /** Snaps back to the host after a local pause. */
   resync: () => void;
@@ -117,6 +117,12 @@ export function PresenceProvider({ children }: { children: ReactNode }) {
 
   /** Guards the follow loop while a track is being fetched and loaded. */
   const applyingRef = useRef(false);
+  /**
+   * The track the follow loop put on, or the one the guest already had when
+   * they joined. Anything else appearing in the player is the guest choosing
+   * their own music, which ends the session for them.
+   */
+  const allowedTrackRef = useRef<string | null>(null);
 
   // --- heartbeat ---------------------------------------------------------
 
@@ -224,30 +230,17 @@ export function PresenceProvider({ children }: { children: ReactNode }) {
     void refreshParty();
   }, [refreshParty, user]);
 
-  const startParty = useCallback(async () => {
-    setError(null);
-    try {
-      const result = await presence.startParty();
-      setParty(result.party);
-      // Publish what is already playing so an invite that is accepted straight
-      // away lands the guest on the right track instead of an empty room.
-      await beat();
-      return result.party;
-    } catch (startError) {
-      setError(startError instanceof Error ? startError.message : 'Could not start the session.');
-      return null;
-    }
-  }, [beat]);
-
-  const joinParty = useCallback(
-    async (partyId: string) => {
+  const listenAlongWith = useCallback(
+    async (userId: string) => {
       setError(null);
       try {
-        const result = await presence.joinParty(partyId);
+        const result = await presence.listenAlongWith(userId);
         setParty(result.party);
         setOutOfSync(false);
       } catch (joinError) {
-        setError(joinError instanceof Error ? joinError.message : 'Could not join that session.');
+        setError(
+          joinError instanceof Error ? joinError.message : 'Could not start listening along.',
+        );
         throw joinError;
       }
     },
@@ -302,6 +295,7 @@ export function PresenceProvider({ children }: { children: ReactNode }) {
           } catch {
             track = placeholderTrack(now);
           }
+          allowedTrackRef.current = now.trackId;
           playAt(track, target, now.isPlaying);
         } finally {
           applyingRef.current = false;
@@ -310,6 +304,7 @@ export function PresenceProvider({ children }: { children: ReactNode }) {
       }
 
       // Same track: correct drift, and match the host's play/pause.
+      allowedTrackRef.current = now.trackId;
       if (now.isPlaying) {
         // Element truth again: `currentTime` state only ticks on timeupdate.
         if (Math.abs(getPosition() - target) > DRIFT_TOLERANCE_S) seek(target);
@@ -374,6 +369,37 @@ export function PresenceProvider({ children }: { children: ReactNode }) {
     return () => window.clearTimeout(timer);
   }, [current?.id, isFollowing, isPlaying, party?.now?.isPlaying, party?.now?.trackId, player.isLoading]);
 
+  /**
+   * Whatever is loaded when following starts is tolerated.
+   *
+   * Both entry points need this — pressing the button, and restoring a session
+   * on a page reload. Without it the auto-disconnect below reads the track the
+   * guest already had (or the one the player just restored from the last
+   * visit) as a deliberate choice, and drops them the instant they arrive.
+   * Declared above that effect so the baseline is set before it is checked.
+   */
+  const wasFollowingRef = useRef(false);
+  useEffect(() => {
+    if (isFollowing && !wasFollowingRef.current) {
+      allowedTrackRef.current = stateRef.current.loadedTrackId;
+    }
+    wasFollowingRef.current = isFollowing;
+  }, [isFollowing]);
+
+  /**
+   * Playing your own music leaves the session.
+   *
+   * Following means somebody else is driving your player, so choosing a track
+   * is a statement that you would rather drive it yourself. Anything the follow
+   * loop loaded is recorded first, so the host's own skips never trip this —
+   * only a track that appeared because the guest picked it.
+   */
+  useEffect(() => {
+    if (!isFollowing || !loadedTrackId) return;
+    if (loadedTrackId === allowedTrackRef.current) return;
+    void leaveParty();
+  }, [isFollowing, leaveParty, loadedTrackId]);
+
   const resync = useCallback(() => {
     setOutOfSync(false);
     const active = partyRef.current;
@@ -387,8 +413,7 @@ export function PresenceProvider({ children }: { children: ReactNode }) {
       isHosting,
       outOfSync,
       error,
-      startParty,
-      joinParty,
+      listenAlongWith,
       leaveParty,
       resync,
       refreshParty: () => void refreshParty(),
@@ -397,13 +422,12 @@ export function PresenceProvider({ children }: { children: ReactNode }) {
       error,
       isFollowing,
       isHosting,
-      joinParty,
       leaveParty,
+      listenAlongWith,
       outOfSync,
       party,
       refreshParty,
       resync,
-      startParty,
     ],
   );
 

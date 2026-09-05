@@ -7,14 +7,11 @@ import {
   Loader2,
   Pause,
   Play,
-  Radio,
-  RefreshCw,
   Repeat,
   Repeat1,
   Shuffle,
   SkipBack,
   SkipForward,
-  Users,
   Volume1,
   Volume2,
   VolumeX,
@@ -22,6 +19,7 @@ import {
 
 import { CoverImage } from './CoverImage';
 import { FavoriteButton } from './FavoriteButton';
+import { ListenAlongPeers } from './ListenAlongPeers';
 import { QueuePanel } from './QueuePanel';
 import { SeekBar } from './SeekBar';
 import { mediaUrl } from '../lib/api';
@@ -38,7 +36,7 @@ import { usePresence } from '../context/PresenceContext';
  */
 export function Player() {
   const player = usePlayer();
-  const { party, isFollowing, isHosting, outOfSync, leaveParty, resync } = usePresence();
+  const { isFollowing } = usePresence();
   const [queueOpen, setQueueOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
 
@@ -55,64 +53,7 @@ export function Player() {
     error,
   } = player;
 
-  /*
-   * A session with nothing playing yet still needs its bar: that is the state
-   * a host is in between pressing "listen together" and choosing a track, and
-   * without it there would be no way to leave.
-   */
-  const sessionBar = party?.live ? (
-    <div className="flex items-center gap-2 border-b border-accent-500/20 bg-accent-500/10 px-3 py-1.5 sm:px-4">
-      <Radio size={13} className="shrink-0 text-accent-300" />
-      <span className="min-w-0 flex-1 truncate text-xs text-zinc-300">
-        {isHosting ? (
-          <>
-            <span className="font-semibold text-accent-200">Hosting</span> — {party.listeners.length}{' '}
-            {party.listeners.length === 1 ? 'listener' : 'listeners'}
-          </>
-        ) : (
-          <>
-            Listening along with{' '}
-            <span className="font-semibold text-accent-200">
-              {party.hostDisplayName || party.hostUsername}
-            </span>
-          </>
-        )}
-      </span>
-
-      {isHosting && party.listeners.length > 1 && (
-        <span className="hidden shrink-0 items-center gap-1 text-xs text-zinc-500 sm:flex">
-          <Users size={12} />
-          {party.listeners
-            .filter((listener) => listener.id !== party.hostId)
-            .map((listener) => listener.displayName || listener.username)
-            .join(', ')}
-        </span>
-      )}
-
-      {isFollowing && outOfSync && (
-        <button type="button" onClick={resync} className="btn-ghost shrink-0 px-2.5 py-1 text-xs">
-          <RefreshCw size={12} />
-          Resync
-        </button>
-      )}
-
-      <button
-        type="button"
-        onClick={() => void leaveParty()}
-        className="btn-ghost shrink-0 px-2.5 py-1 text-xs"
-      >
-        {isHosting ? 'End session' : 'Leave'}
-      </button>
-    </div>
-  ) : null;
-
-  if (!current) {
-    return sessionBar ? (
-      <div className="border-t border-white/5 bg-ink-900/80 backdrop-blur-2xl animate-slide-up">
-        {sessionBar}
-      </div>
-    ) : null;
-  }
+  if (!current) return null;
 
   const effectiveDuration = duration || current.duration || 0;
   const coverId = current.coverId ?? current.albumId;
@@ -266,6 +207,7 @@ export function Player() {
           <div className="flex items-center justify-center">{transport('lg')}</div>
 
           <div className="flex items-center justify-center gap-2">
+            <ListenAlongPeers />
             <FavoriteButton kind="track" id={current.id} label={current.title} />
             <a
               href={mediaUrl.download(current.id)}
@@ -286,7 +228,6 @@ export function Player() {
         reserve exactly that much space.
       */}
       <div className="border-t border-white/5 bg-ink-900/80 backdrop-blur-2xl animate-slide-up">
-        {sessionBar}
         {error && (
           <p className="bg-red-500/15 px-4 py-1.5 text-center text-xs text-red-300">{error}</p>
         )}
@@ -322,6 +263,9 @@ export function Player() {
               <span className="block truncate text-xs text-zinc-500">{current.artist}</span>
             </span>
           </button>
+
+          {/* Who is listening along, if anyone — names on hover. */}
+          <ListenAlongPeers />
 
           <div className="hidden lg:block">
             <FavoriteButton kind="track" id={current.id} label={current.title} size={17} />

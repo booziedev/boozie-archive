@@ -283,4 +283,24 @@ export const migrations: Migration[] = [
       CREATE INDEX IF NOT EXISTS listen_party_members_user_idx ON listen_party_members (user_id);
     `,
   },
+  {
+    id: '006_listen_along_visibility',
+    sql: /* sql */ `
+      /*
+       * Listening along is now something people join from your profile rather
+       * than something you invite them to, so the yes/no invite switch becomes
+       * an audience — the same shape as the status setting next to it.
+       */
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS listen_along_visibility text NOT NULL DEFAULT 'friends';
+      ALTER TABLE users DROP CONSTRAINT IF EXISTS users_listen_along_visibility_check;
+      ALTER TABLE users ADD CONSTRAINT users_listen_along_visibility_check
+        CHECK (listen_along_visibility IN ('everyone', 'friends', 'nobody'));
+
+      -- Anyone who had turned invites off had said no; keep them at no.
+      UPDATE users SET listen_along_visibility = 'nobody'
+       WHERE allow_party_invites = false;
+
+      ALTER TABLE users DROP COLUMN IF EXISTS allow_party_invites;
+    `,
+  },
 ];

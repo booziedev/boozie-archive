@@ -16,7 +16,7 @@ import { Avatar } from '../components/Avatar';
 import { ListeningNow } from '../components/ListeningNow';
 import { PageHeader } from '../components/PageHeader';
 import { ErrorState } from '../components/states';
-import { presence, social } from '../lib/api';
+import { social } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { usePresence } from '../context/PresenceContext';
 import { formatDate } from '../lib/format';
@@ -180,7 +180,7 @@ function ProfileEditor({ profile, onSaved }: { profile: PublicProfile; onSaved: 
           title="Click to upload a picture or GIF"
           className="group relative shrink-0 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-accent-400"
         >
-          <Avatar profile={preview} size={72} ring />
+          <Avatar profile={preview} size={72} />
           <span className="absolute inset-0 flex items-center justify-center rounded-full bg-black/60 opacity-0 transition-opacity duration-200 group-hover:opacity-100 group-focus-visible:opacity-100">
             {upload.isPending ? (
               <Loader2 size={20} className="animate-spin text-white" />
@@ -334,7 +334,7 @@ function OtherProfile({ profile }: { profile: PublicProfile }) {
           style={{ background: `${profile.accentColor ?? '#7c5cff'}22` }}
         />
         <div className="relative flex flex-wrap items-center gap-5">
-          <Avatar profile={profile} size={88} ring />
+          <Avatar profile={profile} size={88} />
           <div className="min-w-0 flex-1">
             <h1 className="truncate text-2xl font-extrabold text-white">
               {profile.displayName || profile.username}
@@ -361,7 +361,7 @@ function OtherProfile({ profile }: { profile: PublicProfile }) {
                 <MessageSquare size={15} />
                 Message
               </Link>
-              <InviteToListenButton profile={profile} />
+              <ListenAlongButton profile={profile} />
               <button type="button" onClick={() => remove.mutate()} className="btn-ghost">
                 <UserMinus size={15} />
                 Remove friend
@@ -401,47 +401,47 @@ function OtherProfile({ profile }: { profile: PublicProfile }) {
 }
 
 /**
- * Starts a listen-along session if there isn't one, then sends this friend the
- * invite as a direct message.
+ * Starts listening along with the person whose profile this is.
  *
- * Hosting is implicit on purpose: "invite them" is the thing anyone actually
- * wants to do, and making them start a session first would be a step with no
- * meaning of its own.
+ * It only appears when they are actually playing something and their own
+ * setting puts this viewer in the audience — there is nothing to join
+ * otherwise, and a button that always fails is worse than no button.
  */
-function InviteToListenButton({ profile }: { profile: PublicProfile }) {
-  const { party, isFollowing, startParty } = usePresence();
-  const [state, setState] = useState<'idle' | 'sending' | 'sent'>('idle');
+function ListenAlongButton({ profile }: { profile: PublicProfile }) {
+  const { party, isFollowing, listenAlongWith, leaveParty } = usePresence();
+  const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (state !== 'sent') return;
-    const timer = window.setTimeout(() => setState('idle'), 3000);
-    return () => window.clearTimeout(timer);
-  }, [state]);
+  const followingThem = isFollowing && party?.hostId === profile.id;
 
-  // Following someone means their player is driving yours; hosting at the same
-  // time would put two hosts on one audio element.
-  if (isFollowing) return null;
+  if (!profile.canListenAlong || !profile.listeningNow) return null;
 
-  async function invite() {
+  async function start() {
     setFailure(null);
-    setState('sending');
+    setBusy(true);
     try {
-      const hosting = party?.isHost && party.live ? party : await startParty();
-      if (!hosting) throw new Error('Could not start a listening session.');
-      await presence.invite(hosting.id, profile.id);
-      setState('sent');
-    } catch (inviteError) {
-      setState('idle');
-      setFailure(inviteError instanceof Error ? inviteError.message : 'Could not send the invite.');
+      await listenAlongWith(profile.id);
+    } catch (joinError) {
+      setFailure(joinError instanceof Error ? joinError.message : 'Could not start listening along.');
+    } finally {
+      setBusy(false);
     }
+  }
+
+  if (followingThem) {
+    return (
+      <button type="button" onClick={() => void leaveParty()} className="btn-ghost">
+        <Radio size={15} className="text-accent-400" />
+        Stop listening along
+      </button>
+    );
   }
 
   return (
     <>
-      <button type="button" onClick={() => void invite()} disabled={state === 'sending'} className="btn-ghost">
-        {state === 'sending' ? <Loader2 size={15} className="animate-spin" /> : <Radio size={15} />}
-        {state === 'sent' ? 'Invite sent' : 'Listen together'}
+      <button type="button" onClick={() => void start()} disabled={busy} className="btn-ghost">
+        {busy ? <Loader2 size={15} className="animate-spin" /> : <Radio size={15} />}
+        Listen together
       </button>
       {failure && <span className="text-xs text-red-400">{failure}</span>}
     </>

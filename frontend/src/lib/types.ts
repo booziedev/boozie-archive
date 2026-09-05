@@ -160,6 +160,8 @@ export interface PublicProfile {
    * chosen not to show it to whoever is looking.
    */
   listeningNow?: NowPlaying | null;
+  /** Whether this account lets the viewer listen along with them. */
+  canListenAlong?: boolean;
 }
 
 export interface FriendSummary extends PublicProfile {
@@ -181,9 +183,7 @@ export type Attachment =
       title?: string;
     }
   | { kind: 'emoji'; url: string; name: string; provider: string }
-  | { kind: 'album' | 'artist' | 'track'; id: string; name: string; subtitle?: string }
-  /** An invite to listen along: `id` is the session, `name` is the host. */
-  | { kind: 'party'; id: string; name: string };
+  | { kind: 'album' | 'artist' | 'track'; id: string; name: string; subtitle?: string };
 
 export interface Message {
   id: string;
@@ -266,12 +266,12 @@ export interface Suggestion {
 
 // --- listening status and listen-along -------------------------------------
 
-/** Who may see your current track. */
+/** An audience: used for both the status and listening along. */
 export type StatusVisibility = 'everyone' | 'friends' | 'nobody';
 
 export interface PrivacySettings {
   statusVisibility: StatusVisibility;
-  allowPartyInvites: boolean;
+  listenAlongVisibility: StatusVisibility;
 }
 
 /** A snapshot of somebody's player. */

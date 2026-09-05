@@ -36,6 +36,8 @@ export interface PublicProfile {
    * costs nothing extra where the status isn't wanted.
    */
   listeningNow?: NowPlaying | null;
+  /** Whether the viewer is in the audience this account lets listen along. */
+  canListenAlong?: boolean;
 }
 
 export interface FriendSummary extends PublicProfile {
@@ -46,9 +48,7 @@ export interface FriendSummary extends PublicProfile {
 export type Attachment =
   | { kind: 'gif'; url: string; previewUrl: string; width?: number; height?: number; provider: string; title?: string }
   | { kind: 'emoji'; url: string; name: string; provider: string }
-  | { kind: 'album' | 'artist' | 'track'; id: string; name: string; subtitle?: string }
-  /** An invite to listen along; `id` is the session, `name` is the host. */
-  | { kind: 'party'; id: string; name: string };
+  | { kind: 'album' | 'artist' | 'track'; id: string; name: string; subtitle?: string };
 
 export interface Message {
   id: string;
@@ -474,8 +474,6 @@ function previewOf(body: string | null, attachment: Attachment | null): string |
       return `Shared an artist · ${attachment.name}`;
     case 'track':
       return `Shared a track · ${attachment.name}`;
-    case 'party':
-      return 'Invited you to listen along';
     default:
       return null;
   }
@@ -546,19 +544,6 @@ export function validateAttachment(raw: unknown): Attachment | null {
       name: String(value.name ?? 'emoji').slice(0, 60),
       provider: String(value.provider ?? 'emoji.gg').slice(0, 20),
     };
-  }
-
-  /*
-   * A listen-along invite carries only the session id. Membership is checked
-   * again when someone actually joins, so a forwarded invite is a shortcut to
-   * a room, never a key to one.
-   */
-  if (kind === 'party') {
-    const id = String(value.id ?? '');
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
-      throw new AuthError('Invalid listening session.', 400, 'invalid_attachment');
-    }
-    return { kind: 'party', id, name: String(value.name ?? '').slice(0, 60) };
   }
 
   if (kind === 'album' || kind === 'artist' || kind === 'track') {

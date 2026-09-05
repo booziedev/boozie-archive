@@ -1,20 +1,14 @@
 import { Link } from 'react-router-dom';
-import { Pause } from 'lucide-react';
 
 import type { NowPlaying } from '../lib/types';
 
 /**
  * Three bars that rise and fall while a track is running.
  *
- * Drawn with CSS rather than an icon so it animates, and swapped for a pause
- * glyph when the track is held — which is the difference between "they're
- * listening" and "they left it open".
+ * A status only exists while something is actually playing — the server never
+ * returns a paused one — so there is no held state to draw.
  */
-function PlayingIndicator({ playing }: { playing: boolean }) {
-  if (!playing) {
-    return <Pause size={11} className="shrink-0 fill-current text-zinc-500" aria-hidden />;
-  }
-
+function PlayingIndicator() {
   return (
     <span className="flex h-3 shrink-0 items-end gap-[2px]" aria-hidden>
       {[0, 1, 2].map((bar) => (
@@ -29,7 +23,7 @@ function PlayingIndicator({ playing }: { playing: boolean }) {
 }
 
 /**
- * "Listening to X by Y", or the paused version of it.
+ * "Listening to X by Y".
  *
  * The whole line links to the album when there is one, so a friend's status
  * doubles as a way into what they are playing.
@@ -49,11 +43,9 @@ export function ListeningNow({
   const label = `${now.title} — ${now.artist}`;
   const body = (
     <>
-      <PlayingIndicator playing={now.isPlaying} />
+      <PlayingIndicator />
       <span className="min-w-0 truncate">
-        {!compact && (
-          <span className="text-zinc-500">{now.isPlaying ? 'Listening to ' : 'Paused — '}</span>
-        )}
+        {!compact && <span className="text-zinc-500">Listening to </span>}
         <span className="font-medium text-zinc-300">{now.title}</span>
         <span className="text-zinc-500"> · {now.artist}</span>
       </span>

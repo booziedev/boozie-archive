@@ -242,7 +242,7 @@ export function Layout() {
           {user && (
             <div className="flex items-center gap-2 border-b border-white/5 pb-3">
               <NavLink to="/profile" className="flex min-w-0 flex-1 items-center gap-2">
-                <Avatar profile={myProfile ?? fallbackProfile} size={28} ring />
+                <Avatar profile={myProfile ?? fallbackProfile} size={28} />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-xs font-medium text-zinc-300">
                     {myProfile?.displayName || user.username}

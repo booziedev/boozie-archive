@@ -5,8 +5,6 @@ interface AvatarProps {
   profile: Pick<PublicProfile, 'id' | 'username' | 'displayName' | 'avatarUrl' | 'accentColor'>;
   size?: number;
   className?: string;
-  /** Shows a coloured ring in the profile's accent colour. */
-  ring?: boolean;
 }
 
 /**
@@ -16,9 +14,8 @@ interface AvatarProps {
  * what lands here is always one of the picker's providers — animated GIFs
  * included, which is why this is a plain <img> rather than a background image.
  */
-export function Avatar({ profile, size = 40, className = '', ring = false }: AvatarProps) {
+export function Avatar({ profile, size = 40, className = '' }: AvatarProps) {
   const name = profile.displayName || profile.username;
-  const accent = profile.accentColor ?? undefined;
 
   return (
     <span
@@ -27,7 +24,6 @@ export function Avatar({ profile, size = 40, className = '', ring = false }: Ava
         width: size,
         height: size,
         background: gradientFor(profile.id || profile.username),
-        boxShadow: ring && accent ? `0 0 0 2px ${accent}` : undefined,
       }}
       title={name}
     >

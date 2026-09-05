@@ -1,7 +1,7 @@
 import { config } from '../config.js';
 import { pool } from '../db/pool.js';
 import { AuthError } from './auth.js';
-import { friendStatusBetween, openThread, sendMessage } from './social.js';
+import { friendStatusBetween } from './social.js';
 
 /**
  * "Listening now" statuses and listen-along sessions.
@@ -14,6 +14,11 @@ import { friendStatusBetween, openThread, sendMessage } from './social.js';
  *
  * Liveness is a read-time question — "was this written recently?" — so nothing
  * needs to run on a schedule to notice that a browser went away.
+ *
+ * Nobody starts a session deliberately: one comes into being when somebody
+ * opens a profile and presses listen along, and the host simply finds out they
+ * have company. Who may do that is the host's own setting, checked on every
+ * read and every join.
  */
 
 export type StatusVisibility = 'everyone' | 'friends' | 'nobody';
@@ -154,43 +159,48 @@ export async function getStatusVisibility(userId: string): Promise<StatusVisibil
 export async function getPrivacy(userId: string) {
   const { rows } = await pool.query<{
     status_visibility: StatusVisibility;
-    allow_party_invites: boolean;
-  }>('SELECT status_visibility, allow_party_invites FROM users WHERE id = $1', [userId]);
+    listen_along_visibility: StatusVisibility;
+  }>('SELECT status_visibility, listen_along_visibility FROM users WHERE id = $1', [userId]);
   const row = rows[0];
   return {
     statusVisibility: row?.status_visibility ?? ('friends' as StatusVisibility),
-    allowPartyInvites: row?.allow_party_invites ?? true,
+    listenAlongVisibility: row?.listen_along_visibility ?? ('friends' as StatusVisibility),
   };
+}
+
+/** Rejects anything that isn't one of the three audiences. */
+function audience(value: unknown, field: string): StatusVisibility {
+  const parsed = String(value);
+  if (parsed !== 'everyone' && parsed !== 'friends' && parsed !== 'nobody') {
+    throw new AuthError(`Unknown ${field}.`, 400, 'invalid_privacy');
+  }
+  return parsed;
 }
 
 export async function updatePrivacy(
   userId: string,
-  input: { statusVisibility?: unknown; allowPartyInvites?: unknown },
+  input: { statusVisibility?: unknown; listenAlongVisibility?: unknown },
 ) {
-  const patch: { statusVisibility?: StatusVisibility; allowPartyInvites?: boolean } = {};
-
-  if (input.statusVisibility !== undefined) {
-    const value = String(input.statusVisibility);
-    if (value !== 'everyone' && value !== 'friends' && value !== 'nobody') {
-      throw new AuthError('Unknown status visibility.', 400, 'invalid_privacy');
-    }
-    patch.statusVisibility = value;
-  }
-  if (input.allowPartyInvites !== undefined) {
-    patch.allowPartyInvites = input.allowPartyInvites === true;
-  }
+  const statusVisibility =
+    input.statusVisibility === undefined
+      ? null
+      : audience(input.statusVisibility, 'status visibility');
+  const listenAlongVisibility =
+    input.listenAlongVisibility === undefined
+      ? null
+      : audience(input.listenAlongVisibility, 'listen-along visibility');
 
   await pool.query(
     `UPDATE users
         SET status_visibility = COALESCE($2, status_visibility),
-            allow_party_invites = COALESCE($3, allow_party_invites)
+            listen_along_visibility = COALESCE($3, listen_along_visibility)
       WHERE id = $1`,
-    [userId, patch.statusVisibility ?? null, patch.allowPartyInvites ?? null],
+    [userId, statusVisibility, listenAlongVisibility],
   );
 
-  // Hiding your status retracts the one already out there, rather than leaving
-  // the last track visible until it expires.
-  if (patch.statusVisibility === 'nobody') await clearNowPlaying(userId);
+  // Closing the door also empties the room, rather than leaving whoever was
+  // already following attached until they happen to stop.
+  if (listenAlongVisibility === 'nobody') await endHostedParties(userId);
 
   return getPrivacy(userId);
 }
@@ -207,11 +217,18 @@ export async function heartbeat(
 ): Promise<{ now: NowPlaying | null; party: PartyState | null }> {
   const input = cleanNowPlaying(raw);
 
+  /*
+   * The row is written whatever the privacy settings say, and every rule is
+   * applied when it is read.
+   *
+   * It is the account's own now-playing state: it renders their status to
+   * whoever is allowed to see it, and it seeds the session when somebody starts
+   * listening along. Skipping the write for one of those settings would break
+   * the other — a host set to hide their status would hand their guests an
+   * empty room. Nothing here is returned to anyone the settings don't permit,
+   * and the row expires on its own once the heartbeats stop.
+   */
   if (!input) {
-    await clearNowPlaying(userId);
-  } else if ((await getStatusVisibility(userId)) === 'nobody') {
-    // Nothing to show anyone, so nothing is stored — but a party the person is
-    // hosting still needs the position, or their guests would stall.
     await clearNowPlaying(userId);
   } else {
     await pool.query(
@@ -258,8 +275,11 @@ async function myNowPlaying(userId: string): Promise<NowPlaying | null> {
 /**
  * One person's status, as the viewer is allowed to see it.
  *
- * The visibility check runs in SQL alongside the friendship lookup so there is
- * no window where a caller gets a row the owner has just hidden.
+ * A status exists only while something is actually playing: pausing is not a
+ * state anyone else needs to see, and "paused three hours ago" reads as
+ * presence when it isn't. The visibility check runs in SQL alongside the
+ * friendship lookup, so there is no window where a caller gets a row the owner
+ * has just hidden.
  */
 export async function statusFor(viewerId: string, userId: string): Promise<NowPlaying | null> {
   const { rows } = await pool.query<StatusRow>(
@@ -271,6 +291,7 @@ export async function statusFor(viewerId: string, userId: string): Promise<NowPl
         AND greatest(f.requester_id, f.addressee_id) = greatest(u.id, $1::uuid)
         AND f.status = 'accepted'
       WHERE s.user_id = $2
+        AND s.is_playing
         AND s.updated_at > now() - ($3 || ' seconds')::interval
         AND (
           u.id = $1
@@ -282,7 +303,7 @@ export async function statusFor(viewerId: string, userId: string): Promise<NowPl
   return rows[0] ? toNowPlaying(rows[0]) : null;
 }
 
-/** Every friend's status the viewer may see, keyed by user id. */
+/** Every playing friend's status the viewer may see, keyed by user id. */
 export async function friendStatuses(viewerId: string): Promise<Record<string, NowPlaying>> {
   const { rows } = await pool.query<StatusRow>(
     `SELECT s.*
@@ -292,7 +313,8 @@ export async function friendStatuses(viewerId: string): Promise<Record<string, N
          ON least(f.requester_id, f.addressee_id) = least(u.id, $1::uuid)
         AND greatest(f.requester_id, f.addressee_id) = greatest(u.id, $1::uuid)
         AND f.status = 'accepted'
-      WHERE s.updated_at > now() - ($2 || ' seconds')::interval
+      WHERE s.is_playing
+        AND s.updated_at > now() - ($2 || ' seconds')::interval
         AND u.status_visibility IN ('everyone', 'friends')`,
     [viewerId, String(config.presenceTtlSeconds)],
   );
@@ -384,23 +406,55 @@ function isStale(updatedAt: Date): boolean {
 }
 
 /** Starts hosting, or returns the session this person already hosts. */
-export async function startParty(userId: string): Promise<PartyState> {
-  // A host whose browser died leaves a row behind; reuse it rather than
-  // colliding with the one-live-party index.
-  const { rows: existing } = await pool.query<PartyRow>(
-    `${PARTY_SELECT} WHERE p.host_id = $1 AND p.ended_at IS NULL`,
-    [userId],
+/** May `viewerId` listen along with `hostId`, per the host's own setting? */
+export async function canListenAlong(viewerId: string, hostId: string): Promise<boolean> {
+  if (viewerId === hostId) return false;
+
+  const { rows } = await pool.query<{ listen_along_visibility: StatusVisibility }>(
+    'SELECT listen_along_visibility FROM users WHERE id = $1 AND disabled = false',
+    [hostId],
+  );
+  const audience = rows[0]?.listen_along_visibility;
+  if (!audience || audience === 'nobody') return false;
+  if (audience === 'everyone') return true;
+  return (await friendStatusBetween(viewerId, hostId)) === 'friends';
+}
+
+/**
+ * Ensures a live session exists for a host, seeded with what they are playing.
+ *
+ * Hosting isn't something anyone opts into any more: a session comes into being
+ * the moment somebody starts listening along, and the host only ever sees who
+ * joined. Seeding from the status row is what makes joining instant — without
+ * it the room would sit empty until the host's next heartbeat, which is up to
+ * twenty seconds for someone who doesn't yet know they have listeners.
+ */
+export async function ensureParty(hostId: string): Promise<string> {
+  const { rows: existing } = await pool.query<{ id: string }>(
+    'SELECT id FROM listen_parties WHERE host_id = $1 AND ended_at IS NULL',
+    [hostId],
   );
 
   if (existing[0]) {
+    // A host whose browser died leaves the row behind; reuse it rather than
+    // colliding with the one-live-party index.
     await pool.query('UPDATE listen_parties SET updated_at = now() WHERE id = $1', [existing[0].id]);
-    const { rows } = await pool.query<PartyRow>(`${PARTY_SELECT} WHERE p.id = $1`, [existing[0].id]);
-    return toPartyState(rows[0]!, userId);
+    return existing[0].id;
   }
 
   const { rows: created } = await pool.query<{ id: string }>(
-    'INSERT INTO listen_parties (host_id) VALUES ($1) RETURNING id',
-    [userId],
+    `INSERT INTO listen_parties
+       (host_id, track_id, title, artist, album, album_id, cover_id,
+        duration, position, is_playing, position_at)
+     SELECT $1, s.track_id, s.title, s.artist, s.album, s.album_id, s.cover_id,
+            s.duration, s.position, s.is_playing, s.updated_at
+       FROM listening_status s
+      WHERE s.user_id = $1
+      UNION ALL
+     SELECT $1, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, false, now()
+      WHERE NOT EXISTS (SELECT 1 FROM listening_status WHERE user_id = $1)
+     RETURNING id`,
+    [hostId],
   );
   const partyId = created[0]!.id;
 
@@ -408,11 +462,41 @@ export async function startParty(userId: string): Promise<PartyState> {
   await pool.query(
     `INSERT INTO listen_party_members (party_id, user_id) VALUES ($1, $2)
      ON CONFLICT DO NOTHING`,
-    [partyId, userId],
+    [partyId, hostId],
   );
+  return partyId;
+}
 
-  const { rows } = await pool.query<PartyRow>(`${PARTY_SELECT} WHERE p.id = $1`, [partyId]);
-  return toPartyState(rows[0]!, userId);
+/**
+ * Starts listening along with somebody, from their profile.
+ *
+ * One call: it checks their setting, brings their session into being if this is
+ * the first listener, and attaches the caller to it.
+ */
+export async function listenAlongWith(viewerId: string, hostId: string): Promise<PartyState> {
+  if (viewerId === hostId) {
+    throw new AuthError("You can't listen along with yourself.", 400, 'invalid_target');
+  }
+  if (!(await canListenAlong(viewerId, hostId))) {
+    throw new AuthError('They are not letting people listen along.', 403, 'not_allowed');
+  }
+
+  const partyId = await ensureParty(hostId);
+  return joinParty(viewerId, partyId);
+}
+
+/** Ends every session this account hosts, and empties them. */
+export async function endHostedParties(userId: string) {
+  const { rows } = await pool.query<{ id: string }>(
+    `UPDATE listen_parties SET ended_at = now(), is_playing = false
+      WHERE host_id = $1 AND ended_at IS NULL
+      RETURNING id`,
+    [userId],
+  );
+  for (const row of rows) {
+    await pool.query('DELETE FROM listen_party_members WHERE party_id = $1', [row.id]);
+  }
+  return { ok: true as const };
 }
 
 /** Mirrors the host's player into their party. No-op for anyone not hosting. */
@@ -461,14 +545,11 @@ export async function getParty(viewerId: string, partyId: string): Promise<Party
   const party = rows[0];
   if (!party) throw new AuthError('No such listening session.', 404, 'not_found');
 
-  // Only the host and their friends can read a session — an invite is how you
-  // find one, friendship is what authorises it. A stranger holding a leaked id
-  // gets the same answer as one holding a made-up id.
-  if (party.host_id !== viewerId) {
-    const status = await friendStatusBetween(viewerId, party.host_id);
-    if (status !== 'friends') {
-      throw new AuthError('No such listening session.', 404, 'not_found');
-    }
+  // The host decides who may listen along, and that decision governs reading
+  // the session too. Someone holding a leaked id who isn't in that audience
+  // gets the same answer as someone holding a made-up one.
+  if (party.host_id !== viewerId && !(await canListenAlong(viewerId, party.host_id))) {
+    throw new AuthError('No such listening session.', 404, 'not_found');
   }
 
   // Reading is also a check-in, so a guest's presence in the room stays fresh.
@@ -499,6 +580,20 @@ export async function currentParty(userId: string): Promise<PartyState | null> {
     await leaveParty(userId, party.id).catch(() => undefined);
     return null;
   }
+
+  /*
+   * Membership is not a standing permission.
+   *
+   * A host can narrow their audience while people are already listening, and
+   * this is the one read that would otherwise hand a session back on nothing
+   * but an old row in the members table. Anyone no longer in the audience is
+   * shown out rather than left holding a state they can't refresh.
+   */
+  if (party.host_id !== userId && !(await canListenAlong(userId, party.host_id))) {
+    await leaveParty(userId, party.id).catch(() => undefined);
+    return null;
+  }
+
   return toPartyState(party, userId);
 }
 
@@ -548,44 +643,3 @@ export async function leaveParty(userId: string, partyId: string) {
   return { ok: true as const };
 }
 
-/**
- * Sends a listen-along invite as a direct message.
- *
- * It goes through the normal message path, so the friends-only rule, the rate
- * limit and the thread's read state all apply exactly as they do to anything
- * else someone sends.
- */
-export async function inviteToParty(userId: string, partyId: string, targetId: string) {
-  const party = await getParty(userId, partyId);
-  if (!party.isHost) {
-    throw new AuthError('Only the host can invite people.', 403, 'not_host');
-  }
-  if (!party.live) {
-    throw new AuthError('That listening session has ended.', 410, 'party_ended');
-  }
-
-  const { rows } = await pool.query<{ allow_party_invites: boolean; username: string }>(
-    'SELECT allow_party_invites, username FROM users WHERE id = $1 AND disabled = false',
-    [targetId],
-  );
-  const target = rows[0];
-  if (!target) throw new AuthError('That account does not exist.', 404, 'not_found');
-  if (!target.allow_party_invites) {
-    throw new AuthError(
-      `${target.username} has turned off listen-along invites.`,
-      403,
-      'invites_disabled',
-    );
-  }
-
-  const threadId = await openThread(userId, targetId);
-  const message = await sendMessage(userId, threadId, {
-    attachment: {
-      kind: 'party',
-      id: partyId,
-      name: party.hostDisplayName || party.hostUsername,
-    },
-  });
-
-  return { threadId, message };
-}

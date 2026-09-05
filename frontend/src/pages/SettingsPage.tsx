@@ -358,24 +358,73 @@ function previewFor(id: GradientId, from: string, to: string): string {
   }
 }
 
-/** Who may see your current track, and whether people may invite you along. */
-const VISIBILITY_OPTIONS: { value: StatusVisibility; label: string; description: string }[] = [
+/** The three audiences, reused by both controls below. */
+const AUDIENCES: { value: StatusVisibility; label: string; description: string }[] = [
   {
     value: 'everyone',
     label: 'Everyone',
-    description: 'Anyone with an account here can see what you have playing.',
+    description: 'Anyone with an account here.',
   },
   {
     value: 'friends',
     label: 'Friends only',
     description: 'Only people you have added as friends. This is the default.',
   },
-  {
-    value: 'nobody',
-    label: 'Nobody',
-    description: 'Your status is never shown, and nothing about it is stored.',
-  },
+  { value: 'nobody', label: 'Nobody', description: 'Nobody at all.' },
 ];
+
+/** One audience picker: a labelled group of three radios. */
+function AudienceChoice({
+  name,
+  title,
+  hint,
+  value,
+  disabled,
+  onChange,
+}: {
+  name: string;
+  title: string;
+  hint: string;
+  value: StatusVisibility | undefined;
+  disabled: boolean;
+  onChange: (next: StatusVisibility) => void;
+}) {
+  return (
+    <div>
+      <p className="mb-1 text-sm font-medium text-zinc-200">{title}</p>
+      <p className="mb-3 text-xs leading-relaxed text-zinc-500">{hint}</p>
+
+      <div className="space-y-2">
+        {AUDIENCES.map((option) => (
+          <label
+            key={option.value}
+            className={`flex cursor-pointer gap-3 rounded-xl border p-3 transition-colors ${
+              value === option.value
+                ? 'border-accent-500/60 bg-white/[0.06]'
+                : 'border-white/10 hover:border-white/20'
+            }`}
+          >
+            <input
+              type="radio"
+              name={name}
+              value={option.value}
+              checked={value === option.value}
+              disabled={disabled}
+              onChange={() => onChange(option.value)}
+              className="mt-0.5 h-4 w-4 shrink-0 accent-accent-500"
+            />
+            <span className="min-w-0">
+              <span className="block text-sm font-medium text-zinc-200">{option.label}</span>
+              <span className="block text-xs leading-relaxed text-zinc-500">
+                {option.description}
+              </span>
+            </span>
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function PrivacySection() {
   const queryClient = useQueryClient();
@@ -397,67 +446,38 @@ function PrivacySection() {
   });
 
   const settings = privacyQuery.data;
+  const disabled = !settings || save.isPending;
 
   return (
-    <section className="surface space-y-5 p-5">
+    <section className="surface space-y-6 p-5">
       <div className="flex items-center gap-2">
         <Eye size={17} className="text-accent-400" />
         <h2 className="text-sm font-semibold uppercase tracking-widest text-zinc-300">Privacy</h2>
         {save.isPending && <Loader2 size={14} className="animate-spin text-zinc-500" />}
       </div>
 
-      <div>
-        <p className="mb-1 text-sm font-medium text-zinc-200">Who can see what you are listening to</p>
-        <p className="mb-3 text-xs leading-relaxed text-zinc-500">
-          Your current track appears on your profile and next to your name in chat. It clears itself
-          about a minute after you close the app.
-        </p>
+      <AudienceChoice
+        name="status-visibility"
+        title="Who can see what you are listening to"
+        hint="Your current track appears on your profile and next to your name in chat. It only
+              shows while something is actually playing, and clears itself about a minute after you
+              close the app."
+        value={settings?.statusVisibility}
+        disabled={disabled}
+        onChange={(statusVisibility) => save.mutate({ statusVisibility })}
+      />
 
-        <div className="space-y-2">
-          {VISIBILITY_OPTIONS.map((option) => (
-            <label
-              key={option.value}
-              className={`flex cursor-pointer gap-3 rounded-xl border p-3 transition-colors ${
-                settings?.statusVisibility === option.value
-                  ? 'border-accent-500/60 bg-white/[0.06]'
-                  : 'border-white/10 hover:border-white/20'
-              }`}
-            >
-              <input
-                type="radio"
-                name="status-visibility"
-                value={option.value}
-                checked={settings?.statusVisibility === option.value}
-                disabled={!settings || save.isPending}
-                onChange={() => save.mutate({ statusVisibility: option.value })}
-                className="mt-0.5 h-4 w-4 shrink-0 accent-accent-500"
-              />
-              <span className="min-w-0">
-                <span className="block text-sm font-medium text-zinc-200">{option.label}</span>
-                <span className="block text-xs leading-relaxed text-zinc-500">
-                  {option.description}
-                </span>
-              </span>
-            </label>
-          ))}
-        </div>
-      </div>
-
-      <label className="flex cursor-pointer items-start gap-3 border-t border-white/5 pt-4">
-        <input
-          type="checkbox"
-          checked={settings?.allowPartyInvites ?? true}
-          disabled={!settings || save.isPending}
-          onChange={(event) => save.mutate({ allowPartyInvites: event.target.checked })}
-          className="mt-0.5 h-4 w-4 shrink-0 accent-accent-500"
+      <div className="border-t border-white/5 pt-5">
+        <AudienceChoice
+          name="listen-along-visibility"
+          title="Who can listen along with you"
+          hint="They open your profile while you are playing something and press Listen together;
+                their player then follows yours until they play something of their own."
+          value={settings?.listenAlongVisibility}
+          disabled={disabled}
+          onChange={(listenAlongVisibility) => save.mutate({ listenAlongVisibility })}
         />
-        <span>
-          <span className="block text-sm text-zinc-200">Let friends invite me to listen together</span>
-          <span className="block text-xs leading-relaxed text-zinc-500">
-            Turning this off stops the invites arriving. You can still start a session yourself.
-          </span>
-        </span>
-      </label>
+      </div>
 
       {privacyQuery.isError && (
         <p className="text-xs text-red-400">Could not load your privacy settings.</p>
