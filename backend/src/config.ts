@@ -66,6 +66,10 @@ export const config = {
   dataDir,
   indexFile: path.join(dataDir, 'library-index.json'),
   coverCacheDir: path.join(dataDir, 'covers'),
+  /** Uploaded profile pictures live here, served back via /api/avatar/:file. */
+  avatarDir: path.join(dataDir, 'avatars'),
+  /** Largest profile picture accepted, in bytes. Animated GIFs get sizeable. */
+  avatarMaxBytes: int('AVATAR_MAX_BYTES', 5 * 1024 * 1024),
 
   /**
    * Allowed browser origins. "*" allows any origin, which is what you want
@@ -216,6 +220,16 @@ export function isAllowedMediaUrl(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Avatars are either uploaded here — a same-origin `/api/avatar/<file>` path —
+ * or a URL from the allowlisted providers. Anything else is refused, so nobody
+ * can point an avatar at an arbitrary host and log every viewer's IP.
+ */
+export function isAllowedAvatarUrl(value: string): boolean {
+  if (/^\/api\/avatar\/[A-Za-z0-9_-]{1,80}\.(png|jpg|jpeg|gif|webp)$/.test(value)) return true;
+  return isAllowedMediaUrl(value);
 }
 
 /** Audio extensions we index. Everything here is supported by music-metadata. */

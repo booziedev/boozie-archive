@@ -164,6 +164,22 @@ export const social = {
   }) => jsonRequest<{ profile: PublicProfile }>('/api/profile/me', 'PATCH', patch),
   profile: (username: string) =>
     request<{ profile: PublicProfile }>(`/api/profile/${encodeURIComponent(username)}`),
+
+  /**
+   * Uploads a profile picture. The body is multipart, so no JSON content type
+   * here — the browser sets its own boundary — but the CSRF marker still goes
+   * along, since this is a cookie-authenticated write.
+   */
+  uploadAvatar: (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return request<{ profile: PublicProfile }>('/api/profile/me/avatar', {
+      method: 'POST',
+      headers: { 'X-Requested-With': 'boozie-archive' },
+      body: form,
+    });
+  },
+  removeAvatar: () => jsonRequest<{ profile: PublicProfile }>('/api/profile/me/avatar', 'DELETE'),
   searchUsers: (q: string) =>
     request<{ users: PublicProfile[] }>(`/api/users/search?q=${encodeURIComponent(q)}`),
 

@@ -7,6 +7,26 @@
     color-scheme: dark;
     /* Height of the sticky player bar; pages reserve this much bottom space. */
     --player-height: 88px;
+
+    /*
+     * Theme defaults. These reproduce the original violet palette exactly;
+     * Settings overwrites them at runtime via lib/theme.ts. Values are bare
+     * RGB channels so Tailwind can apply its own alpha to them.
+     */
+    --accent-50: 242 239 255;
+    --accent-200: 207 196 255;
+    --accent-300: 179 162 255;
+    --accent-400: 149 125 255;
+    --accent-500: 124 92 255;
+    --accent-600: 103 66 230;
+    --accent-700: 82 50 189;
+    --accent-900: 42 26 99;
+    --glow: 34 211 238;
+
+    /* Animated background. */
+    --grad-a: #7c5cff;
+    --grad-b: #22d3ee;
+    --grad-duration: 24s;
   }
 
   html {
@@ -22,14 +42,128 @@
     min-height: 100dvh;
   }
 
-  /* The page background: a fixed radial wash plus a fine grain overlay. */
+  /*
+   * The page background.
+   *
+   * One fixed layer whose image is chosen by `data-gradient` on <html> and
+   * coloured by --grad-a / --grad-b. Animation is opt-out via
+   * `data-gradient-animate`, and off entirely under prefers-reduced-motion.
+   */
   body::before {
     content: '';
     position: fixed;
     inset: 0;
     z-index: -2;
-    @apply bg-vault-radial;
     pointer-events: none;
+    background-attachment: fixed;
+    @apply bg-vault-radial;
+  }
+
+  /* --- gradient presets ------------------------------------------------ */
+
+  html[data-gradient='none'] body::before {
+    background-image: none;
+  }
+
+  html[data-gradient='vault'] body::before {
+    background-image:
+      radial-gradient(1200px 600px at 15% -10%, var(--grad-a), transparent 60%),
+      radial-gradient(900px 500px at 85% 0%, var(--grad-b), transparent 55%);
+    opacity: 0.22;
+  }
+
+  html[data-gradient='aurora'] body::before {
+    background-image: linear-gradient(
+      115deg,
+      transparent 0%,
+      var(--grad-a) 22%,
+      transparent 42%,
+      var(--grad-b) 62%,
+      transparent 84%
+    );
+    background-size: 260% 260%;
+    opacity: 0.2;
+    animation: aurora-drift var(--grad-duration) ease-in-out infinite;
+  }
+
+  html[data-gradient='nebula'] body::before {
+    background-image:
+      radial-gradient(60% 60% at 30% 25%, var(--grad-a), transparent 70%),
+      radial-gradient(55% 55% at 75% 65%, var(--grad-b), transparent 70%),
+      radial-gradient(70% 70% at 50% 100%, var(--grad-a), transparent 75%);
+    background-size: 180% 180%;
+    opacity: 0.24;
+    animation: nebula-roll var(--grad-duration) linear infinite;
+  }
+
+  html[data-gradient='ember'] body::before {
+    background-image: linear-gradient(
+      0deg,
+      var(--grad-a) 0%,
+      var(--grad-b) 38%,
+      transparent 72%
+    );
+    background-size: 100% 240%;
+    opacity: 0.2;
+    animation: ember-rise var(--grad-duration) ease-in-out infinite alternate;
+  }
+
+  html[data-gradient='mesh'] body::before {
+    background-image:
+      radial-gradient(38% 38% at 20% 20%, var(--grad-a), transparent 70%),
+      radial-gradient(34% 34% at 80% 30%, var(--grad-b), transparent 70%),
+      radial-gradient(40% 40% at 65% 80%, var(--grad-a), transparent 72%),
+      radial-gradient(30% 30% at 15% 75%, var(--grad-b), transparent 70%);
+    background-size: 150% 150%;
+    opacity: 0.26;
+    animation: mesh-breathe var(--grad-duration) ease-in-out infinite alternate;
+  }
+
+  /* A still frame when the viewer turns animation off. */
+  html[data-gradient-animate='off'] body::before {
+    animation: none !important;
+  }
+
+  @keyframes aurora-drift {
+    0%,
+    100% {
+      background-position: 0% 50%;
+    }
+    50% {
+      background-position: 100% 50%;
+    }
+  }
+
+  @keyframes nebula-roll {
+    0% {
+      background-position: 0% 0%;
+    }
+    50% {
+      background-position: 100% 100%;
+    }
+    100% {
+      background-position: 0% 0%;
+    }
+  }
+
+  @keyframes ember-rise {
+    from {
+      background-position: 50% 100%;
+    }
+    to {
+      background-position: 50% 0%;
+    }
+  }
+
+  @keyframes mesh-breathe {
+    from {
+      background-position: 0% 0%;
+      background-size: 150% 150%;
+    }
+    to {
+      background-position: 100% 100%;
+      background-size: 190% 190%;
+    }
   }
 
   body::after {
@@ -223,6 +357,28 @@ input[type='range'].vault-range:active::-moz-range-thumb {
   opacity: 1;
 }
 
+/* --- hue picker ---------------------------------------------------------- */
+/* A white ring around the live colour, so the handle reads on any hue. */
+input[type='range'].hue-range::-webkit-slider-thumb {
+  @apply appearance-none rounded-full;
+  height: 22px;
+  width: 22px;
+  background: rgb(var(--accent-500));
+  border: 3px solid #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
+  cursor: grab;
+}
+
+input[type='range'].hue-range::-moz-range-thumb {
+  @apply rounded-full;
+  height: 22px;
+  width: 22px;
+  background: rgb(var(--accent-500));
+  border: 3px solid #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
+  cursor: grab;
+}
+
 /* Touch targets stay comfortable on phones even though the bar is thin. */
 @media (pointer: coarse) {
   input[type='range'].vault-range::-webkit-slider-thumb {
@@ -234,6 +390,10 @@ input[type='range'].vault-range:active::-moz-range-thumb {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  body::before {
+    animation: none !important;
+  }
+
   *,
   *::before,
   *::after {

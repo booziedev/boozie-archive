@@ -1,7 +1,13 @@
+import fs from 'node:fs';
+import fsp from 'node:fs/promises';
+
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 
+import { config } from '../config.js';
+import { deleteAvatarFile, resolveAvatarFile, storeAvatar } from '../lib/avatars.js';
 import {
   acceptFriendRequest,
+  currentAvatarUrl,
   blockUser,
   deleteMessage,
   getProfile,
@@ -44,6 +50,71 @@ export const socialRoutes: FastifyPluginAsync = async (app: FastifyInstance) => 
       accentColor?: string | null;
     };
     return { profile: await updateProfile(request.user!.id, body) };
+  });
+
+  /**
+   * Serves an uploaded picture.
+   *
+   * The content type comes from the stored extension (which was decided by the
+   * file's magic bytes on upload), never from anything the client says, and
+   * `nosniff` plus an attachment-safe disposition keep a browser from ever
+   * treating it as a document.
+   */
+  app.get('/avatar/:file', async (request, reply) => {
+    const { file } = request.params as { file: string };
+    const resolved = resolveAvatarFile(file);
+    if (!resolved) return reply.code(404).send({ error: 'Not found' });
+
+    let stat: fs.Stats;
+    try {
+      stat = await fsp.stat(resolved.path);
+    } catch {
+      return reply.code(404).send({ error: 'Not found' });
+    }
+
+    return reply
+      .header('Content-Type', resolved.mime)
+      .header('Content-Length', stat.size)
+      .header('Content-Disposition', 'inline')
+      .header('X-Content-Type-Options', 'nosniff')
+      // The filename is random and changes on every upload, so this is safe to
+      // cache hard — a new picture is a new URL.
+      .header('Cache-Control', 'public, max-age=31536000, immutable')
+      .send(fs.createReadStream(resolved.path));
+  });
+
+  /**
+   * Uploads a profile picture. The image is validated by its own magic bytes
+   * rather than the declared content type, stored under a random name, and the
+   * previous upload is deleted so old pictures don't pile up on the Pi.
+   */
+  app.post('/profile/me/avatar', async (request, reply) => {
+    const file = await request.file({ limits: { fileSize: config.avatarMaxBytes, files: 1 } });
+    if (!file) return reply.code(400).send({ error: 'No image was uploaded.' });
+
+    let buffer: Buffer;
+    try {
+      buffer = await file.toBuffer();
+    } catch {
+      return reply.code(413).send({
+        error: `Profile pictures must be under ${Math.round(config.avatarMaxBytes / 1024 / 1024)} MB.`,
+      });
+    }
+
+    const previous = await currentAvatarUrl(request.user!.id);
+    const stored = await storeAvatar(buffer);
+    const { profile } = { profile: await updateProfile(request.user!.id, { avatarUrl: stored.url }) };
+
+    // Only once the new one is safely on the account.
+    await deleteAvatarFile(previous).catch(() => undefined);
+    return reply.code(201).send({ profile });
+  });
+
+  app.delete('/profile/me/avatar', async (request) => {
+    const previous = await currentAvatarUrl(request.user!.id);
+    const profile = await updateProfile(request.user!.id, { avatarUrl: null });
+    await deleteAvatarFile(previous).catch(() => undefined);
+    return { profile };
   });
 
   app.get('/profile/:username', async (request, reply) => {

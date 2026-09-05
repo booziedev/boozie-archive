@@ -12,7 +12,8 @@ A personal music archiv
   for issuing, expiring and disabling invite codes
 - **Friends and private messages**, with GIF/emoji support and one-tap sharing of
   any album, artist or track into a conversation
-- **Profiles** with animated GIF avatars, a display name, bio and accent colour
+- **Profiles** with uploadable picture/GIF avatars, a display name, bio and accent
+- **Themeable UI** — hue slider or hex accent, plus animated gradient backgrounds
 - Installable from **Safari on iOS** as a full-screen app with lock-screen controls
 
 ## Guides

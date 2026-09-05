@@ -4,6 +4,7 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import compress from '@fastify/compress';
 import cookie from '@fastify/cookie';
+import multipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
 
 import { config } from './config.js';
@@ -59,6 +60,12 @@ async function main() {
   });
 
   await app.register(cookie);
+
+  // Profile picture uploads. One small file per request; the route validates
+  // the bytes themselves before anything is written.
+  await app.register(multipart, {
+    limits: { fileSize: config.avatarMaxBytes, files: 1, fields: 4 },
+  });
 
   /**
    * CORS.

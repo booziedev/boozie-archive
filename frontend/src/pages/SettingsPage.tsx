@@ -1,67 +1,38 @@
 import { useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, Loader2, Plug, RefreshCw, Share, Smartphone, Trash2, XCircle } from 'lucide-react';
+import { CheckCircle2, Palette, RotateCcw, Share, Smartphone, Sparkles, Trash2 } from 'lucide-react';
 
 import { PageHeader } from '../components/PageHeader';
-import {
-  getApiBaseUrl,
-  getConfiguredBaseUrl,
-  hasApiOverride,
-  setApiBaseUrl,
-  normalizeBase,
-} from '../lib/config';
-import { formatBytes, formatDate, formatNumber, formatRuntime } from '../lib/format';
-import { useStats } from '../hooks/useLibrary';
+import { useTheme } from '../context/ThemeContext';
 import { useIsIOS, useIsStandalone } from '../hooks/useIsStandalone';
+import { GRADIENTS, hexToHsl, hslToHex, hexToRgb, type GradientId } from '../lib/theme';
 
-type TestState = { status: 'idle' | 'testing' | 'ok' | 'fail'; message?: string };
+/** Ready-made accents, so picking a look takes one tap. */
+const PRESETS = ['#7c5cff', '#22d3ee', '#34d399', '#f59e0b', '#f43f5e', '#a855f7', '#38bdf8', '#e2e8f0'];
 
-/** Connection settings, library diagnostics and PWA install help. */
+/** Appearance, installation and local maintenance. */
 export function SettingsPage() {
-  const [value, setValue] = useState(getApiBaseUrl());
-  const [test, setTest] = useState<TestState>({ status: 'idle' });
-  const queryClient = useQueryClient();
-  const { data: stats } = useStats();
+  const { theme, setTheme, reset, isDefault } = useTheme();
   const standalone = useIsStandalone();
   const isIOS = useIsIOS();
 
-  /** Verifies the entered URL before it becomes the app's API base. */
-  async function testConnection() {
-    setTest({ status: 'testing' });
-    try {
-      const base = normalizeBase(value);
-      const response = await fetch(`${base}/api/health`, { headers: { Accept: 'application/json' } });
-      if (!response.ok) throw new Error(`Server replied ${response.status}`);
-      const body = (await response.json()) as { status: string; indexed: boolean };
-      setTest({
-        status: 'ok',
-        message: body.indexed ? 'Connected — library indexed.' : 'Connected — the library is still indexing.',
-      });
-    } catch (error) {
-      setTest({
-        status: 'fail',
-        message:
-          error instanceof Error
-            ? `${error.message}. Check the URL, that the backend is running, and that CORS allows this origin.`
-            : 'Connection failed.',
-      });
-    }
+  const accentHsl = hexToHsl(theme.accent);
+  const [hexDraft, setHexDraft] = useState(theme.accent);
+
+  /** Keeps saturation and lightness, spins the hue. */
+  function setHue(hue: number) {
+    const base = accentHsl ?? { h: hue, s: 100, l: 68 };
+    const next = hslToHex({ ...base, h: hue });
+    setTheme({ accent: next });
+    setHexDraft(next);
   }
 
-  function save() {
-    setApiBaseUrl(value);
-    queryClient.clear();
-    setTest({ status: 'ok', message: 'Saved. Reloading data from the new server…' });
+  function commitHex(value: string) {
+    setHexDraft(value);
+    const normalized = value.startsWith('#') ? value : `#${value}`;
+    if (hexToRgb(normalized)) setTheme({ accent: normalized });
   }
 
-  function resetToBuildValue() {
-    setApiBaseUrl('');
-    setValue(getConfiguredBaseUrl());
-    queryClient.clear();
-    setTest({ status: 'idle' });
-  }
-
-  /** Wipes the offline caches so a stale app shell can be recovered from. */
+  /** Wipes the offline cache so a stale app shell can be recovered from. */
   async function clearCaches() {
     try {
       if ('caches' in window) {
@@ -79,97 +50,223 @@ export function SettingsPage() {
 
   return (
     <div className="max-w-3xl space-y-8">
-      <PageHeader title="Settings" subtitle="Connection, diagnostics and installation." />
+      <PageHeader
+        title="Settings"
+        subtitle="Make it yours — colours, background and installation."
+        actions={
+          !isDefault ? (
+            <button type="button" onClick={reset} className="btn-ghost">
+              <RotateCcw size={15} />
+              Reset theme
+            </button>
+          ) : null
+        }
+      />
 
-      {/* ------------------------- API connection ------------------------- */}
-      <section className="surface space-y-4 p-5">
+      {/* ------------------------------ accent ---------------------------- */}
+      <section className="surface space-y-5 p-5">
         <div className="flex items-center gap-2">
-          <Plug size={17} className="text-accent-400" />
+          <Palette size={17} className="text-accent-400" />
           <h2 className="text-sm font-semibold uppercase tracking-widest text-zinc-300">
-            Archive server
+            Accent colour
           </h2>
         </div>
 
-        <p className="text-sm leading-relaxed text-zinc-500">
-          The public HTTPS address of the backend running on the Pi (your Cloudflare Tunnel or
-          Tailscale Funnel URL). Leave it empty to use the same origin as this page.
-        </p>
-
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <input
-            type="url"
-            inputMode="url"
-            value={value}
-            onChange={(event) => {
-              setValue(event.target.value);
-              setTest({ status: 'idle' });
-            }}
-            placeholder="https://music-api.example.com"
-            aria-label="API base URL"
-            autoComplete="off"
-            autoCapitalize="none"
-            spellCheck={false}
-            className="flex-1 rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-2.5 font-mono text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-accent-500/50 focus:outline-none"
-          />
-          <button type="button" onClick={testConnection} className="btn-ghost">
-            {test.status === 'testing' ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
-            Test
-          </button>
-          <button type="button" onClick={save} className="btn-primary">
-            Save
-          </button>
-        </div>
-
-        {test.status === 'ok' && (
-          <p className="flex items-center gap-2 text-sm text-emerald-400">
-            <CheckCircle2 size={15} />
-            {test.message}
-          </p>
-        )}
-        {test.status === 'fail' && (
-          <p className="flex items-start gap-2 text-sm text-red-400">
-            <XCircle size={15} className="mt-0.5 shrink-0" />
-            {test.message}
-          </p>
-        )}
-
-        <div className="flex flex-wrap items-center gap-3 border-t border-white/5 pt-3 text-xs text-zinc-600">
-          <span>
-            Build default:{' '}
-            <code className="font-mono text-zinc-500">{getConfiguredBaseUrl() || 'same origin'}</code>
-          </span>
-          {hasApiOverride() && (
-            <button type="button" onClick={resetToBuildValue} className="text-accent-400 hover:underline">
-              Reset to build default
-            </button>
-          )}
-        </div>
-      </section>
-
-      {/* --------------------------- library ------------------------------ */}
-      <section className="surface space-y-3 p-5">
-        <h2 className="text-sm font-semibold uppercase tracking-widest text-zinc-300">Library</h2>
-        {stats ? (
-          <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-3">
-            <Row label="Artists" value={formatNumber(stats.artists)} />
-            <Row label="Albums" value={formatNumber(stats.albums)} />
-            <Row label="Tracks" value={formatNumber(stats.tracks)} />
-            <Row label="Total size" value={formatBytes(stats.size)} />
-            <Row label="Runtime" value={formatRuntime(stats.duration)} />
-            <Row label="Genres" value={formatNumber(stats.genres)} />
-            <Row label="Last scan" value={formatDate(stats.scannedAt)} />
-            <Row label="Status" value={stats.scanning ? 'Scanning…' : 'Idle'} />
-            <Row
-              label="Formats"
-              value={stats.formats.map((format) => format.ext.toUpperCase()).join(', ') || '—'}
+        <div className="flex flex-wrap gap-2">
+          {PRESETS.map((color) => (
+            <button
+              key={color}
+              type="button"
+              onClick={() => {
+                setTheme({ accent: color });
+                setHexDraft(color);
+              }}
+              aria-label={`Accent ${color}`}
+              className={`h-9 w-9 rounded-full transition-transform hover:scale-110 ${
+                theme.accent.toLowerCase() === color.toLowerCase()
+                  ? 'ring-2 ring-white ring-offset-2 ring-offset-ink-850'
+                  : ''
+              }`}
+              style={{ background: color }}
             />
-          </dl>
-        ) : (
-          <p className="text-sm text-zinc-500">No connection to the archive server.</p>
+          ))}
+        </div>
+
+        {/* Hue slider — the fastest way to sweep the whole palette. */}
+        <label className="block">
+          <span className="mb-2 flex items-center justify-between text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-600">
+            Hue
+            <span className="tabular-nums">{Math.round(accentHsl?.h ?? 0)}°</span>
+          </span>
+          <input
+            type="range"
+            min={0}
+            max={360}
+            step={1}
+            value={Math.round(accentHsl?.h ?? 0)}
+            onChange={(event) => setHue(Number(event.target.value))}
+            aria-label="Accent hue"
+            className="hue-range h-3 w-full cursor-pointer appearance-none rounded-full outline-none"
+            style={{
+              background:
+                'linear-gradient(to right, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)',
+            }}
+          />
+        </label>
+
+        {/* Exact value, for anyone who has a hex in mind. */}
+        <div className="flex flex-wrap items-center gap-3">
+          <input
+            type="color"
+            value={hexToRgb(theme.accent) ? theme.accent : '#7c5cff'}
+            onChange={(event) => commitHex(event.target.value)}
+            aria-label="Pick an accent colour"
+            className="h-10 w-14 cursor-pointer rounded-lg border border-white/10 bg-transparent p-1"
+          />
+          <label className="flex items-center gap-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-600">Hex</span>
+            <input
+              type="text"
+              value={hexDraft}
+              onChange={(event) => commitHex(event.target.value)}
+              onBlur={() => setHexDraft(theme.accent)}
+              maxLength={7}
+              spellCheck={false}
+              aria-label="Accent hex code"
+              className="w-28 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 font-mono text-sm uppercase text-zinc-100 focus:border-accent-500/50 focus:outline-none"
+            />
+          </label>
+
+          <span className="ml-auto flex items-center gap-2">
+            <span className="rounded-lg bg-accent-500 px-3 py-1.5 text-xs font-semibold text-white shadow-glow">
+              Preview
+            </span>
+            <span className="pill pill-accent">Accent</span>
+          </span>
+        </div>
+      </section>
+
+      {/* ----------------------------- background -------------------------- */}
+      <section className="surface space-y-5 p-5">
+        <div className="flex items-center gap-2">
+          <Sparkles size={17} className="text-accent-400" />
+          <h2 className="text-sm font-semibold uppercase tracking-widest text-zinc-300">
+            Background
+          </h2>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+          {GRADIENTS.map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              onClick={() => setTheme({ gradient: option.id })}
+              className={`group overflow-hidden rounded-xl border text-left transition-colors ${
+                theme.gradient === option.id
+                  ? 'border-accent-500/60 bg-white/[0.06]'
+                  : 'border-white/10 hover:border-white/20'
+              }`}
+            >
+              <span
+                aria-hidden
+                className="block h-14 w-full"
+                style={{ background: previewFor(option.id, theme.gradientFrom, theme.gradientTo) }}
+              />
+              <span className="block px-2.5 py-2">
+                <span className="block text-xs font-semibold text-zinc-200">{option.name}</span>
+                <span className="block truncate text-[10px] text-zinc-600">{option.description}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+
+        {theme.gradient !== 'none' && (
+          <>
+            <div className="flex flex-wrap items-center gap-5">
+              <label className="flex items-center gap-2">
+                <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-600">
+                  From
+                </span>
+                <input
+                  type="color"
+                  value={theme.gradientFrom}
+                  onChange={(event) => setTheme({ gradientFrom: event.target.value })}
+                  aria-label="Gradient start colour"
+                  className="h-9 w-12 cursor-pointer rounded-lg border border-white/10 bg-transparent p-1"
+                />
+              </label>
+              <label className="flex items-center gap-2">
+                <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-600">
+                  To
+                </span>
+                <input
+                  type="color"
+                  value={theme.gradientTo}
+                  onChange={(event) => setTheme({ gradientTo: event.target.value })}
+                  aria-label="Gradient end colour"
+                  className="h-9 w-12 cursor-pointer rounded-lg border border-white/10 bg-transparent p-1"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={() =>
+                  setTheme({ gradientFrom: theme.gradientTo, gradientTo: theme.gradientFrom })
+                }
+                className="btn-ghost px-3 py-1.5 text-xs"
+              >
+                Swap
+              </button>
+              <button
+                type="button"
+                onClick={() => setTheme({ gradientFrom: theme.accent, gradientTo: theme.accent })}
+                className="btn-ghost px-3 py-1.5 text-xs"
+              >
+                Match accent
+              </button>
+            </div>
+
+            <label className="flex items-center gap-3">
+              <input
+                type="checkbox"
+                checked={theme.animate}
+                onChange={(event) => setTheme({ animate: event.target.checked })}
+                className="h-4 w-4 accent-accent-500"
+              />
+              <span className="text-sm text-zinc-300">Animate the background</span>
+            </label>
+
+            {theme.animate && (
+              <label className="block">
+                <span className="mb-2 flex items-center justify-between text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-600">
+                  Speed
+                  <span className="tabular-nums">{theme.gradientSpeed}s per cycle</span>
+                </span>
+                <input
+                  type="range"
+                  min={6}
+                  max={90}
+                  step={2}
+                  // Inverted so dragging right feels faster.
+                  value={96 - theme.gradientSpeed}
+                  onChange={(event) => setTheme({ gradientSpeed: 96 - Number(event.target.value) })}
+                  aria-label="Animation speed"
+                  className="vault-range"
+                  style={{
+                    ['--range-progress' as string]: `${((96 - theme.gradientSpeed - 6) / 84) * 100}%`,
+                  }}
+                />
+              </label>
+            )}
+
+            <p className="text-xs leading-relaxed text-zinc-600">
+              The background respects your system's reduced-motion setting: with it on, the gradient
+              is drawn as a still frame.
+            </p>
+          </>
         )}
       </section>
 
-      {/* ----------------------------- install ---------------------------- */}
+      {/* ------------------------------- install --------------------------- */}
       <section className="surface space-y-3 p-5">
         <div className="flex items-center gap-2">
           <Smartphone size={17} className="text-accent-400" />
@@ -207,12 +304,12 @@ export function SettingsPage() {
         )}
       </section>
 
-      {/* --------------------------- maintenance -------------------------- */}
+      {/* ----------------------------- maintenance ------------------------- */}
       <section className="surface space-y-3 p-5">
         <h2 className="text-sm font-semibold uppercase tracking-widest text-zinc-300">Maintenance</h2>
         <p className="text-sm leading-relaxed text-zinc-500">
-          Clears the offline app cache and reloads. Use this after a deploy if the app looks stale.
-          Favourites are kept.
+          Clears the offline app cache and reloads. Use this if the app looks stale after an update.
+          Your account, favourites and theme are kept.
         </p>
         <button type="button" onClick={() => void clearCaches()} className="btn-ghost">
           <Trash2 size={15} />
@@ -223,13 +320,22 @@ export function SettingsPage() {
   );
 }
 
-function Row({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <dt className="text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-600">{label}</dt>
-      <dd className="mt-0.5 truncate text-zinc-300" title={value}>
-        {value}
-      </dd>
-    </div>
-  );
+/** A static thumbnail of each preset for the picker tiles. */
+function previewFor(id: GradientId, from: string, to: string): string {
+  switch (id) {
+    case 'none':
+      return '#0a0a10';
+    case 'vault':
+      return `radial-gradient(70% 120% at 15% 0%, ${from}, transparent 60%), radial-gradient(60% 110% at 85% 0%, ${to}, transparent 55%), #0a0a10`;
+    case 'aurora':
+      return `linear-gradient(115deg, #0a0a10 0%, ${from} 35%, #0a0a10 55%, ${to} 80%, #0a0a10 100%)`;
+    case 'nebula':
+      return `radial-gradient(60% 60% at 30% 25%, ${from}, transparent 70%), radial-gradient(55% 55% at 75% 70%, ${to}, transparent 70%), #0a0a10`;
+    case 'ember':
+      return `linear-gradient(0deg, ${from} 0%, ${to} 45%, #0a0a10 85%)`;
+    case 'mesh':
+      return `radial-gradient(40% 60% at 20% 25%, ${from}, transparent 70%), radial-gradient(35% 55% at 78% 30%, ${to}, transparent 70%), radial-gradient(45% 60% at 60% 85%, ${from}, transparent 72%), #0a0a10`;
+    default:
+      return '#0a0a10';
+  }
 }

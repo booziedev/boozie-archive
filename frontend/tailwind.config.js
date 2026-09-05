@@ -14,17 +14,22 @@ export default {
           700: '#20202f',
           600: '#2b2b3d',
         },
+        /**
+         * Driven by CSS variables so the accent can be re-picked at runtime
+         * from Settings. The defaults live in index.css; `lib/theme.ts` is the
+         * only thing that overwrites them.
+         */
         accent: {
-          50: '#f2efff',
-          200: '#cfc4ff',
-          300: '#b3a2ff',
-          400: '#957dff',
-          500: '#7c5cff',
-          600: '#6742e6',
-          700: '#5232bd',
-          900: '#2a1a63',
+          50: 'rgb(var(--accent-50) / <alpha-value>)',
+          200: 'rgb(var(--accent-200) / <alpha-value>)',
+          300: 'rgb(var(--accent-300) / <alpha-value>)',
+          400: 'rgb(var(--accent-400) / <alpha-value>)',
+          500: 'rgb(var(--accent-500) / <alpha-value>)',
+          600: 'rgb(var(--accent-600) / <alpha-value>)',
+          700: 'rgb(var(--accent-700) / <alpha-value>)',
+          900: 'rgb(var(--accent-900) / <alpha-value>)',
         },
-        glow: '#22d3ee',
+        glow: 'rgb(var(--glow) / <alpha-value>)',
       },
       fontFamily: {
         sans: [
@@ -42,11 +47,11 @@ export default {
       boxShadow: {
         card: '0 1px 0 0 rgba(255,255,255,0.04) inset, 0 18px 40px -24px rgba(0,0,0,0.9)',
         lift: '0 30px 60px -28px rgba(0,0,0,0.95), 0 0 0 1px rgba(255,255,255,0.06)',
-        glow: '0 0 0 1px rgba(124,92,255,0.35), 0 12px 40px -12px rgba(124,92,255,0.55)',
+        glow: '0 0 0 1px rgb(var(--accent-500) / 0.35), 0 12px 40px -12px rgb(var(--accent-500) / 0.55)',
       },
       backgroundImage: {
         'vault-radial':
-          'radial-gradient(1200px 600px at 15% -10%, rgba(124,92,255,0.18), transparent 60%), radial-gradient(900px 500px at 85% 0%, rgba(34,211,238,0.10), transparent 55%)',
+          'radial-gradient(1200px 600px at 15% -10%, rgb(var(--accent-500) / 0.18), transparent 60%), radial-gradient(900px 500px at 85% 0%, rgb(var(--glow) / 0.10), transparent 55%)',
         'card-sheen':
           'linear-gradient(135deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0) 45%, rgba(255,255,255,0.04) 100%)',
       },

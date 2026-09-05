@@ -72,12 +72,30 @@ admin can demote or delete themselves.
 
 ## How embedded media is protected
 
-Anything that ends up as a remote `<img>` — GIF and emoji attachments, and
-avatars — is checked at write time against a host allowlist
-(`ALLOWED_MEDIA_HOSTS`: Giphy, Tenor and emoji.gg CDNs, https only). This stops
-two things: leaking viewers' IP addresses to arbitrary hosts, and pointing an
-avatar at an internal address to probe the network from other members' browsers.
-An avatar set to `http://169.254.169.254/…` is rejected, not fetched.
+Anything that ends up as a **remote** `<img>` — GIF and emoji attachments — is
+checked at write time against a host allowlist (`ALLOWED_MEDIA_HOSTS`: Giphy,
+Tenor and emoji.gg CDNs, https only). This stops leaking viewers' IP addresses
+to arbitrary hosts.
+
+**Uploaded profile pictures** are handled separately and never trust the client:
+
+- the format is decided by the file's own **magic bytes**, not the declared
+  `Content-Type` or the filename — a renamed `.html` or `.svg` is rejected with
+  a 400, and SVG is not on the list at all because it can carry script;
+- accepted types are PNG, JPEG, GIF (animation preserved — nothing is
+  re-encoded) and WebP, up to `AVATAR_MAX_BYTES` (5 MB);
+- files are written under a **random 32-hex name** the user never influences, so
+  there is no path to traverse and no name to collide with;
+- they are served back with the content type derived from that stored
+  extension, `X-Content-Type-Options: nosniff` and `Content-Disposition:
+  inline`, so a browser can never treat one as a document;
+- the serving route sits behind the same session gate as everything else, so
+  avatars are not readable by strangers with the URL;
+- replacing a picture deletes the previous file, so uploads don't accumulate.
+
+An avatar can otherwise only be a URL on the allowlist, so pointing one at an
+internal address — `http://169.254.169.254/…` — to probe the network from other
+members' browsers is rejected rather than fetched.
 
 GIF and emoji **searches are proxied through the Pi**. The API keys stay on the
 server, and Giphy/Tenor/emoji.gg never see a member's IP or what they searched

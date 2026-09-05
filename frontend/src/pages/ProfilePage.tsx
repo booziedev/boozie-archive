@@ -1,21 +1,19 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  Camera,
   Check,
   Loader2,
   MessageSquare,
   Palette,
-  Sparkles,
   UserMinus,
   UserPlus,
-  X,
 } from 'lucide-react';
 
 import { Avatar } from '../components/Avatar';
 import { PageHeader } from '../components/PageHeader';
 import { ErrorState } from '../components/states';
-import { StickerPicker } from '../components/StickerPicker';
 import { social } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { formatDate } from '../lib/format';
@@ -25,9 +23,9 @@ const ACCENTS = ['#7c5cff', '#22d3ee', '#34d399', '#f59e0b', '#f43f5e', '#a855f7
 
 /**
  * Someone's profile. Viewing your own turns it into the editor: display name,
- * bio, accent colour, and an animated avatar picked from the GIF/emoji picker
- * (the only sources the server accepts, so avatars can't be pointed at
- * arbitrary hosts).
+ * bio, accent colour, and a profile picture uploaded by clicking the avatar —
+ * animated GIFs included. The server decides the format from the file's own
+ * magic bytes, so a renamed script can't get in.
  */
 export function ProfilePage() {
   const { username } = useParams<{ username?: string }>();
@@ -70,20 +68,64 @@ export function ProfilePage() {
   );
 }
 
+/** Matches what the server accepts; anything else is rejected before upload. */
+const ACCEPTED_IMAGES = 'image/png,image/jpeg,image/gif,image/webp';
+const MAX_AVATAR_MB = 5;
+
 function ProfileEditor({ profile, onSaved }: { profile: PublicProfile; onSaved: () => void }) {
   const [displayName, setDisplayName] = useState(profile.displayName ?? '');
   const [bio, setBio] = useState(profile.bio ?? '');
   const [avatarUrl, setAvatarUrl] = useState(profile.avatarUrl);
   const [accentColor, setAccentColor] = useState(profile.accentColor ?? ACCENTS[0]!);
-  const [pickerOpen, setPickerOpen] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!saved) return;
     const timer = window.setTimeout(() => setSaved(false), 2200);
     return () => window.clearTimeout(timer);
   }, [saved]);
+
+  const upload = useMutation({
+    mutationFn: (file: File) => social.uploadAvatar(file),
+    onSuccess: (result) => {
+      setError(null);
+      setAvatarUrl(result.profile.avatarUrl);
+      onSaved();
+    },
+    onError: (uploadError) =>
+      setError(uploadError instanceof Error ? uploadError.message : 'Could not upload that image.'),
+  });
+
+  const removePicture = useMutation({
+    mutationFn: () => social.removeAvatar(),
+    onSuccess: () => {
+      setError(null);
+      setAvatarUrl(null);
+      onSaved();
+    },
+    onError: (removeError) =>
+      setError(removeError instanceof Error ? removeError.message : 'Could not remove the picture.'),
+  });
+
+  /** Cheap client-side checks so obvious mistakes don't cost a round trip. */
+  function onFilePicked(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    // Let the same file be chosen again after a failure.
+    event.target.value = '';
+    if (!file) return;
+
+    if (!ACCEPTED_IMAGES.split(',').includes(file.type)) {
+      setError('Choose a PNG, JPEG, GIF or WebP image.');
+      return;
+    }
+    if (file.size > MAX_AVATAR_MB * 1024 * 1024) {
+      setError(`That image is ${(file.size / 1024 / 1024).toFixed(1)} MB — the limit is ${MAX_AVATAR_MB} MB.`);
+      return;
+    }
+    upload.mutate(file);
+  }
 
   const save = useMutation({
     mutationFn: () =>
@@ -108,59 +150,68 @@ function ProfileEditor({ profile, onSaved }: { profile: PublicProfile; onSaved: 
     <div className="max-w-2xl space-y-6">
       <PageHeader title="Your profile" subtitle="How you appear to other people in the archive." />
 
-      {/* Live preview of the row everyone else sees. */}
+      {/*
+        Live preview of the row everyone else sees — and the upload control:
+        clicking the picture opens the file chooser.
+      */}
       <section className="surface flex items-center gap-4 p-5">
-        <Avatar profile={preview} size={72} ring />
-        <div className="min-w-0">
+        <input
+          ref={fileInput}
+          type="file"
+          accept={ACCEPTED_IMAGES}
+          onChange={onFilePicked}
+          className="hidden"
+          aria-hidden
+          tabIndex={-1}
+        />
+
+        <button
+          type="button"
+          onClick={() => fileInput.current?.click()}
+          disabled={upload.isPending}
+          aria-label="Change your profile picture"
+          title="Click to upload a picture or GIF"
+          className="group relative shrink-0 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-accent-400"
+        >
+          <Avatar profile={preview} size={72} ring />
+          <span className="absolute inset-0 flex items-center justify-center rounded-full bg-black/60 opacity-0 transition-opacity duration-200 group-hover:opacity-100 group-focus-visible:opacity-100">
+            {upload.isPending ? (
+              <Loader2 size={20} className="animate-spin text-white" />
+            ) : (
+              <Camera size={20} className="text-white" />
+            )}
+          </span>
+        </button>
+
+        <div className="min-w-0 flex-1">
           <p className="truncate text-lg font-bold text-white">
             {displayName.trim() || profile.username}
           </p>
           <p className="truncate text-sm text-zinc-500">@{profile.username}</p>
-          {bio.trim() && <p className="mt-1 line-clamp-2 text-xs text-zinc-500">{bio}</p>}
+          <p className="mt-1.5 text-xs text-zinc-600">
+            {upload.isPending ? (
+              'Uploading…'
+            ) : (
+              <>
+                Click your picture to upload one — PNG, JPEG, WebP or an animated GIF, up to{' '}
+                {MAX_AVATAR_MB} MB.
+              </>
+            )}
+          </p>
+          {avatarUrl && (
+            <button
+              type="button"
+              onClick={() => removePicture.mutate()}
+              disabled={removePicture.isPending}
+              className="mt-1.5 text-xs text-zinc-500 transition-colors hover:text-red-400"
+            >
+              Remove picture
+            </button>
+          )}
         </div>
       </section>
 
       <section className="surface space-y-5 p-5">
-        {/* ------------------------------ avatar ------------------------- */}
-        <div className="relative">
-          <span className="mb-2 block text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-600">
-            Profile picture
-          </span>
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setPickerOpen((open) => !open)}
-              className="btn-ghost"
-            >
-              <Sparkles size={15} />
-              {avatarUrl ? 'Change GIF' : 'Pick a GIF or emoji'}
-            </button>
-            {avatarUrl && (
-              <button type="button" onClick={() => setAvatarUrl(null)} className="btn-ghost">
-                <X size={15} />
-                Remove
-              </button>
-            )}
-          </div>
-          <p className="mt-2 text-xs leading-relaxed text-zinc-600">
-            Animated GIFs work. Pictures come from the built-in picker so nothing points at an
-            unknown host.
-          </p>
-
-          {pickerOpen && (
-            <div className="relative mt-2 h-0">
-              <StickerPicker
-                onClose={() => setPickerOpen(false)}
-                onPick={(attachment) => {
-                  if (attachment.kind === 'gif') setAvatarUrl(attachment.url);
-                  else if (attachment.kind === 'emoji') setAvatarUrl(attachment.url);
-                  setPickerOpen(false);
-                }}
-              />
-            </div>
-          )}
-        </div>
-
         {/* --------------------------- display name ---------------------- */}
         <label className="block">
           <span className="mb-1.5 block text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-600">

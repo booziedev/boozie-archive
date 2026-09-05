@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { App } from './App';
 import { AuthProvider } from './context/AuthContext';
 import { FavoritesProvider } from './context/FavoritesContext';
+import { ThemeProvider } from './context/ThemeContext';
 import { PlayerProvider } from './context/PlayerContext';
 import './index.css';
 
@@ -29,13 +30,15 @@ createRoot(container).render(
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         {/* Auth wraps the rest: the player and favourites belong to a session. */}
-        <AuthProvider>
-          <FavoritesProvider>
-            <PlayerProvider>
-              <App />
-            </PlayerProvider>
-          </FavoritesProvider>
-        </AuthProvider>
+        <ThemeProvider>
+          <AuthProvider>
+            <FavoritesProvider>
+              <PlayerProvider>
+                <App />
+              </PlayerProvider>
+            </FavoritesProvider>
+          </AuthProvider>
+        </ThemeProvider>
       </BrowserRouter>
     </QueryClientProvider>
   </StrictMode>,

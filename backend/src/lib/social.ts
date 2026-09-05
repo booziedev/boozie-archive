@@ -1,4 +1,4 @@
-import { config, isAllowedMediaUrl } from '../config.js';
+import { config, isAllowedAvatarUrl, isAllowedMediaUrl } from '../config.js';
 import { pool } from '../db/pool.js';
 import { AuthError } from './auth.js';
 
@@ -110,6 +110,15 @@ export async function getProfileByUsername(
   return toProfile(rows[0], await friendStatusBetween(viewerId, rows[0].id));
 }
 
+/** The avatar currently stored on an account, for replace-and-delete. */
+export async function currentAvatarUrl(userId: string): Promise<string | null> {
+  const { rows } = await pool.query<{ avatar_url: string | null }>(
+    'SELECT avatar_url FROM users WHERE id = $1',
+    [userId],
+  );
+  return rows[0]?.avatar_url ?? null;
+}
+
 export async function updateProfile(
   userId: string,
   input: { displayName?: string | null; bio?: string | null; avatarUrl?: string | null; accentColor?: string | null },
@@ -128,11 +137,12 @@ export async function updateProfile(
   if (accentColor && !HEX_COLOR.test(accentColor)) {
     throw new AuthError('Accent colour must be a hex value like #7c5cff.', 400, 'invalid_profile');
   }
-  // An avatar is rendered in other people's browsers, so it may only point at
-  // a provider we already trust — never an arbitrary or internal address.
-  if (avatarUrl && !isAllowedMediaUrl(avatarUrl)) {
+  // An avatar is rendered in other people's browsers, so it may only be an
+  // upload stored here or a provider we already trust — never an arbitrary or
+  // internal address.
+  if (avatarUrl && !isAllowedAvatarUrl(avatarUrl)) {
     throw new AuthError(
-      'Avatars must come from the built-in GIF or emoji picker.',
+      'Avatars must be uploaded here, or picked from the built-in picker.',
       400,
       'invalid_avatar',
     );
