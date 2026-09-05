@@ -227,7 +227,9 @@ function Conversation({ thread }: { thread: ThreadSummary }) {
                       type="button"
                       onClick={() => remove.mutate(message.id)}
                       aria-label="Delete message"
-                      className="icon-btn h-7 w-7 opacity-0 transition-opacity group-hover:opacity-100"
+                      // Hover doesn't exist on a phone, so the control is always
+                      // shown there and only fades in on pointer devices.
+                      className="icon-btn h-7 w-7 transition-opacity group-hover:opacity-100 sm:opacity-0"
                     >
                       <Trash2 size={13} />
                     </button>
@@ -333,8 +335,22 @@ export function MessagesPage() {
       <div className={active ? 'hidden lg:block' : ''}>
         <PageHeader title="Messages" subtitle="Private conversations with your friends." />
       </div>
+      {/* Desktop keeps the page header above the panel, so it needs the shorter box. */}
+      <style>{`@media (min-width: 1024px) { .dm-panel { height: calc(100dvh - var(--chrome-top, 4rem) - var(--chrome-bottom, 8rem) - 11rem) !important; } }`}</style>
 
-      <div className="surface grid h-[calc(100dvh-16rem)] min-h-[26rem] grid-cols-1 overflow-hidden lg:grid-cols-[20rem_1fr]">
+      {/*
+        Fills the space between the header and the fixed chrome, both measured
+        by the layout — so the messenger uses the whole screen on a phone
+        instead of stopping short above the tab bar.
+      */}
+      <div
+        className="dm-panel surface grid min-h-[22rem] grid-cols-1 overflow-hidden lg:grid-cols-[20rem_1fr]"
+        style={{
+          height: active
+            ? 'calc(100dvh - var(--chrome-top, 4rem) - var(--chrome-bottom, 8rem) - 3rem)'
+            : 'calc(100dvh - var(--chrome-top, 4rem) - var(--chrome-bottom, 8rem) - 9rem)',
+        }}
+      >
         {/* Thread list — hidden on phones while a conversation is open. */}
         <aside
           className={`min-h-0 overflow-y-auto border-white/5 lg:border-r ${active ? 'hidden lg:block' : 'block'}`}

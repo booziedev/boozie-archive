@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import {
   Disc3,
@@ -18,6 +18,7 @@ import { Player } from './Player';
 import { SearchBar } from './SearchBar';
 import { useQuery } from '@tanstack/react-query';
 
+import { AccountMenu } from './AccountMenu';
 import { Avatar } from './Avatar';
 import { social } from '../lib/api';
 import { useStats } from '../hooks/useLibrary';
@@ -73,6 +74,41 @@ export function Layout() {
     staleTime: 5 * 60 * 1000,
   });
   const myProfile = profileQuery.data?.profile ?? null;
+
+  /**
+   * The fixed chrome changes height with the viewport: the player bar appears
+   * only while something is playing, the tab bar is phone-only, and both grow
+   * by the device's safe-area inset. Measuring them and publishing the result
+   * as CSS variables lets every page reserve exactly the right space instead of
+   * padding for a guessed worst case — which is what left a phone-sized hole
+   * under the messenger.
+   */
+  const headerRef = useRef<HTMLElement>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+
+    function measure() {
+      const top = headerRef.current?.offsetHeight ?? 0;
+      const bottom = bottomRef.current?.offsetHeight ?? 0;
+      root.style.setProperty('--chrome-top', `${top}px`);
+      root.style.setProperty('--chrome-bottom', `${bottom}px`);
+    }
+
+    measure();
+    const observer = new ResizeObserver(measure);
+    if (headerRef.current) observer.observe(headerRef.current);
+    if (bottomRef.current) observer.observe(bottomRef.current);
+    window.addEventListener('resize', measure);
+    window.addEventListener('orientationchange', measure);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', measure);
+      window.removeEventListener('orientationchange', measure);
+    };
+  }, []);
   const fallbackProfile = {
     id: user?.id ?? '',
     username: user?.username ?? '',
@@ -246,70 +282,40 @@ export function Layout() {
 
       {/* ---------------------------- main ------------------------------- */}
       <div className="lg:pl-64">
-        <header className="sticky top-0 z-30 border-b border-white/5 bg-ink-950/70 backdrop-blur-2xl">
+        <header
+          ref={headerRef}
+          className="sticky top-0 z-30 border-b border-white/5 bg-ink-950/70 backdrop-blur-2xl"
+        >
           <div className="mx-auto flex max-w-[1800px] items-center gap-3 px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] sm:px-6 lg:py-3.5">
-            <NavLink to="/" className="flex items-center gap-2 lg:hidden">
+            <NavLink to="/" aria-label="Home" className="shrink-0 lg:hidden">
               <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-accent-500 to-glow">
                 <Disc3 size={17} className="text-white" />
               </span>
             </NavLink>
-            <SearchBar className="max-w-xl flex-1" />
+            <SearchBar className="min-w-0 max-w-xl flex-1" />
 
-            {user && (
-              <div className="flex items-center gap-0.5 lg:hidden">
-                <NavLink
-                  to="/messages"
-                  aria-label="Messages"
-                  className={({ isActive }) =>
-                    `icon-btn relative h-9 w-9 ${isActive ? 'text-accent-300' : ''}`
-                  }
-                >
-                  <MessageSquare size={18} />
-                  {badges.messages > 0 && (
-                    <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-accent-500" />
-                  )}
-                </NavLink>
-                <NavLink
-                  to="/friends"
-                  aria-label="Friends"
-                  className={({ isActive }) =>
-                    `icon-btn relative h-9 w-9 ${isActive ? 'text-accent-300' : ''}`
-                  }
-                >
-                  <UserRound size={18} />
-                  {badges.friendRequests > 0 && (
-                    <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-accent-500" />
-                  )}
-                </NavLink>
-                {isAdmin && (
-                  <NavLink
-                    to="/admin"
-                    aria-label="Admin panel"
-                    className={({ isActive }) => `icon-btn h-9 w-9 ${isActive ? 'text-accent-300' : ''}`}
-                  >
-                    <Shield size={18} />
-                  </NavLink>
-                )}
-                <button
-                  type="button"
-                  onClick={() => void signOut()}
-                  aria-label="Sign out"
-                  className="icon-btn h-9 w-9"
-                >
-                  <LogOut size={18} />
-                </button>
-              </div>
-            )}
+            <div className="lg:hidden">
+              <AccountMenu profile={myProfile} badges={badges} />
+            </div>
           </div>
         </header>
 
-        <main className="mx-auto max-w-[1800px] px-4 pb-52 pt-6 sm:px-6 lg:pb-36 lg:pt-8">
+        {/* Bottom padding tracks the measured chrome, with a floor for first paint. */}
+        <main
+          className="mx-auto max-w-[1800px] px-4 pt-6 sm:px-6 lg:pt-8"
+          style={{ paddingBottom: 'calc(var(--chrome-bottom, 8rem) + 2rem)' }}
+        >
           <Outlet />
         </main>
       </div>
 
-      {/* ------------------------ mobile tab bar -------------------------- */}
-      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-white/5 bg-ink-900/90 backdrop-blur-2xl lg:hidden">
+      {/* ---------------- fixed bottom chrome (measured) ------------------- */}
+      <div ref={bottomRef} className="pointer-events-none fixed inset-x-0 bottom-0 z-40">
+        <div className="pointer-events-auto">
+          <Player />
+        </div>
+
+        <nav className="pointer-events-auto border-t border-white/5 bg-ink-900/90 backdrop-blur-2xl lg:hidden">
         <div className="flex items-stretch justify-around pb-[max(0.25rem,env(safe-area-inset-bottom))] pt-1.5">
           {NAV.map(({ to, label, icon: Icon, end }) => (
             <NavLink
@@ -325,11 +331,10 @@ export function Layout() {
               <Icon size={19} strokeWidth={2} />
               <span className="truncate">{label}</span>
             </NavLink>
-          ))}
-        </div>
-      </nav>
-
-      <Player />
+            ))}
+          </div>
+        </nav>
+      </div>
     </div>
   );
 }

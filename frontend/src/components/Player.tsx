@@ -202,8 +202,12 @@ export function Player() {
       </div>
 
       {/* ---------------- persistent bar ---------------------------------- */}
-      {/* Sits directly above the mobile tab bar; flush to the bottom on desktop. */}
-      <div className="fixed inset-x-0 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-40 border-t border-white/5 bg-ink-900/80 backdrop-blur-2xl animate-slide-up lg:bottom-0">
+      {/*
+        In normal flow inside the layout's fixed bottom chrome, which stacks the
+        player above the mobile tab bar and measures the pair so pages can
+        reserve exactly that much space.
+      */}
+      <div className="border-t border-white/5 bg-ink-900/80 backdrop-blur-2xl animate-slide-up">
         {error && (
           <p className="bg-red-500/15 px-4 py-1.5 text-center text-xs text-red-300">{error}</p>
         )}

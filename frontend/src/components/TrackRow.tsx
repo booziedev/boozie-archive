@@ -114,7 +114,10 @@ export function TrackRow({ track, tracks, index, variant = 'flat' }: TrackRowPro
           </Link>
           {variant === 'flat' && (
             <>
-              <span aria-hidden>·</span>
+              {/* Hidden together with the album name it separates. */}
+              <span aria-hidden className="hidden sm:inline">
+                ·
+              </span>
               <Link
                 to={`/albums/${track.albumId}`}
                 className="hidden truncate transition-colors hover:text-zinc-300 hover:underline sm:block"
