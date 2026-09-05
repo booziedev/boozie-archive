@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 
 import { config } from '../config.js';
+import { frontendBuild } from '../lib/build.js';
 import { library, type SortKey } from '../lib/library.js';
 import { clearCoverCache } from '../lib/covers.js';
 
@@ -37,11 +38,20 @@ function parseQuery(raw: RawQuery) {
 
 /** JSON metadata endpoints. Everything here is served from memory. */
 export const apiRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
+  /**
+   * Liveness, plus which frontend build is being served.
+   *
+   * The build fields are what answer "I pulled and restarted, but the page
+   * hasn't changed": if `builtAt` is older than the pull, the frontend never
+   * rebuilt; if it is current but the browser is loading a different bundle
+   * name, the browser is holding a cached shell.
+   */
   app.get('/health', async () => ({
     status: 'ok',
     uptime: Math.round(process.uptime()),
     indexed: !library.isEmpty,
     scanning: library.progress.scanning,
+    frontend: frontendBuild(),
   }));
 
   app.get('/stats', async () => library.stats());

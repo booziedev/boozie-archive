@@ -5,12 +5,20 @@
  *  - navigations      -> network first, fall back to the cached app shell so the
  *                        app still opens when the Pi or the tunnel is down;
  *  - hashed assets    -> cache first (their URL changes on every deploy);
+ *  - icons            -> cached, but revalidated in the background: their names
+ *                        are stable, so cache-first would pin the first logo a
+ *                        visitor ever loaded;
  *  - cover art        -> cache first with a bounded cache;
  *  - audio + API JSON -> never cached. Range requests must reach the network or
  *                        seeking breaks in Safari, and stale metadata is worse
  *                        than a spinner.
  */
-const VERSION = 'v1';
+/*
+ * Bump this whenever the caching strategy changes: `activate` drops every cache
+ * whose name doesn't end in the current version, so old entries written under
+ * the old rules cannot outlive them.
+ */
+const VERSION = 'v2';
 const SHELL_CACHE = `archive-shell-${VERSION}`;
 const ASSET_CACHE = `archive-assets-${VERSION}`;
 const COVER_CACHE = `archive-covers-${VERSION}`;
@@ -104,16 +112,40 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  if (url.origin === self.location.origin) {
+  /*
+   * Hashed bundles under /assets/ can be trusted forever: a change to their
+   * contents changes their URL.
+   */
+  if (url.pathname.startsWith('/assets/')) {
     event.respondWith(
       caches.open(ASSET_CACHE).then(async (cache) => {
         const hit = await cache.match(request);
         if (hit) return hit;
         const response = await fetch(request);
-        if (response.ok && (url.pathname.startsWith('/assets/') || url.pathname.startsWith('/icons/'))) {
-          await cache.put(request, response.clone());
-        }
+        if (response.ok) await cache.put(request, response.clone());
         return response;
+      }),
+    );
+    return;
+  }
+
+  /*
+   * Icons keep the same filenames across deploys, so cache-first would pin the
+   * first logo a visitor ever loaded and never show a new one. Serve the cached
+   * copy for speed, but refresh it in the background so the next load is
+   * current — the difference between "instant" and "permanently stale".
+   */
+  if (url.pathname.startsWith('/icons/')) {
+    event.respondWith(
+      caches.open(ASSET_CACHE).then(async (cache) => {
+        const hit = await cache.match(request);
+        const fresh = fetch(request)
+          .then(async (response) => {
+            if (response.ok) await cache.put(request, response.clone());
+            return response;
+          })
+          .catch(() => hit ?? Response.error());
+        return hit ?? fresh;
       }),
     );
   }

@@ -14,6 +14,7 @@ import { AuthError, pruneExpiredSessions, resolveSession } from './lib/auth.js';
 import { apiRoutes } from './routes/api.js';
 import { adminRoutes } from './routes/admin.js';
 import { authRoutes, inviteThrottle, loginThrottle } from './routes/auth.js';
+import { describeFrontendBuild } from './lib/build.js';
 import { mediaRoutes } from './routes/media.js';
 import { presenceRoutes } from './routes/presence.js';
 import { socialRoutes } from './routes/social.js';
@@ -327,7 +328,11 @@ async function main() {
       return reply.header('Cache-Control', 'no-cache').sendFile('index.html');
     });
 
-    app.log.info(`Serving the web app from ${frontendDist}`);
+    const build = await describeFrontendBuild(frontendDist);
+    app.log.info(
+      `Serving the web app from ${frontendDist} ` +
+        `(built ${build.builtAt ?? 'unknown'}, bundle ${build.bundle ?? 'unknown'})`,
+    );
   } else if (config.serveFrontend) {
     // Loud, actionable: this is the difference between "I get the app" and
     // "I get JSON", and the reason is always one of these two.

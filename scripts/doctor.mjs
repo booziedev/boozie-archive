@@ -29,6 +29,26 @@ function warn(label, detail = '') {
   console.log(`  ${yellow('!')} ${label}${detail ? dim(`  ${detail}`) : ''}`);
 }
 
+/** Newest mtime under the given files/directories, or null if none exist. */
+function newestSourceTime(targets) {
+  let newest = null;
+  const visit = (target) => {
+    let stat;
+    try {
+      stat = fs.statSync(target);
+    } catch {
+      return;
+    }
+    if (stat.isDirectory()) {
+      for (const entry of fs.readdirSync(target)) visit(path.join(target, entry));
+      return;
+    }
+    if (!newest || stat.mtime > newest) newest = stat.mtime;
+  };
+  targets.forEach(visit);
+  return newest;
+}
+
 function exists(p) {
   try {
     return fs.statSync(p).isFile() || fs.statSync(p).isDirectory();
@@ -64,8 +84,35 @@ else bad('backend is NOT built', 'npm --prefix backend install && npm --prefix b
 
 const frontendIndex = path.join(repoRoot, 'frontend', 'dist', 'index.html');
 if (exists(frontendIndex)) {
-  const built = fs.statSync(frontendIndex).mtime.toISOString().replace('T', ' ').slice(0, 16);
-  ok('frontend built', `frontend/dist  (built ${built})`);
+  const builtAt = fs.statSync(frontendIndex).mtime;
+  const built = builtAt.toISOString().replace('T', ' ').slice(0, 16);
+  const bundle = /<script[^>]+src="\/assets\/(index-[^"]+\.js)"/.exec(
+    fs.readFileSync(frontendIndex, 'utf8'),
+  )?.[1];
+  ok('frontend built', `frontend/dist  (built ${built}${bundle ? `, ${bundle}` : ''})`);
+
+  /*
+   * The "I pulled and restarted but the page is unchanged" check.
+   *
+   * A pull rewrites the mtime of every source file it touches, so a build older
+   * than the newest source means the frontend was never rebuilt against the code
+   * that is now checked out — and no amount of restarting the server will change
+   * what the browser is served.
+   */
+  const newest = newestSourceTime([
+    path.join(repoRoot, 'frontend', 'src'),
+    path.join(repoRoot, 'frontend', 'public'),
+    path.join(repoRoot, 'frontend', 'index.html'),
+  ]);
+  if (newest && newest > builtAt) {
+    bad(
+      `frontend sources are newer than the build (source ${newest
+        .toISOString()
+        .replace('T', ' ')
+        .slice(0, 16)} > build ${built}) — you are being served the OLD app`,
+      'npm --prefix frontend run build   (then restart: pm2 restart boozie-archive-api)',
+    );
+  }
 } else {
   bad(
     'frontend is NOT built — this is why you get JSON instead of the web app',
