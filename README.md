@@ -18,6 +18,26 @@ A personal music archiv
   members propose features or upload tracks for an admin to approve
 - Installable from **Safari on iOS** as a full-screen app with lock-screen controls
 
+## Branding
+
+The mark in the sidebar, on the sign-in screen and on the maintenance page comes
+from one file:
+
+```bash
+# 1. save your artwork as a square PNG (512px or larger, transparent if you have it)
+cp ~/my-logo.png frontend/public/icons/logo.png
+
+# 2. generate the favicon, apple-touch and PWA sizes from it
+npm run icons
+
+# 3. rebuild and restart
+npm --prefix frontend run build && pm2 restart boozie-archive-api
+```
+
+Until `logo.png` exists the app falls back to a built-in disc glyph, so nothing
+is ever broken. `npm run icons -- path/to/art.png` reads from somewhere else if
+you'd rather not copy the file in first.
+
 ## Guides
 
 - [POSTGRES.md](POSTGRES.md) — database setup on the Pi, backups, troubleshooting

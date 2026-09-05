@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { AlertCircle, Check, Disc3, Loader2, Lock, ShieldCheck, Ticket, User, X } from 'lucide-react';
+import { AlertCircle, Check, Loader2, Lock, ShieldCheck, Ticket, User, X } from 'lucide-react';
 
+import { Logo } from '../components/Logo';
 import { auth } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { useDebounced } from '../hooks/useDebounced';
@@ -112,9 +113,7 @@ export function AuthPage() {
 
       <div className="relative w-full max-w-md animate-fade-up">
         <div className="mb-7 text-center">
-          <span className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-accent-500 to-glow shadow-glow">
-            <Disc3 size={26} className="text-white" />
-          </span>
+          <Logo size={60} className="mx-auto mb-4" />
           <h1 className="text-xl font-extrabold tracking-[0.16em] text-white">{siteName}</h1>
           <p className="mt-1.5 text-sm text-zinc-500">{siteTagline}</p>
         </div>

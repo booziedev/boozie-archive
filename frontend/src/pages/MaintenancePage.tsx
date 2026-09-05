@@ -1,7 +1,8 @@
 import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { Disc3, RefreshCw, Wrench } from 'lucide-react';
+import { RefreshCw, Wrench } from 'lucide-react';
 
+import { Logo } from '../components/Logo';
 import { useAuth } from '../context/AuthContext';
 import { siteName } from '../lib/config';
 
@@ -32,9 +33,7 @@ export function MaintenancePage() {
       />
 
       <div className="relative w-full max-w-md text-center animate-fade-up">
-        <span className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-accent-500 to-glow shadow-glow">
-          <Disc3 size={30} className="animate-spin text-white" style={{ animationDuration: '4s' }} />
-        </span>
+        <Logo size={68} className="mx-auto mb-5" />
 
         <h1 className="text-lg font-extrabold tracking-[0.16em] text-white">{siteName}</h1>
 

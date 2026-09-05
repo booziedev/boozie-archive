@@ -23,6 +23,7 @@ import { useQuery } from '@tanstack/react-query';
 import { AccountMenu } from './AccountMenu';
 import { AnnouncementBanner } from './AnnouncementBanner';
 import { Avatar } from './Avatar';
+import { Logo } from './Logo';
 import { social } from '../lib/api';
 import { useStats } from '../hooks/useLibrary';
 import { useAuth } from '../context/AuthContext';
@@ -136,9 +137,7 @@ export function Layout() {
         <div className="px-6 py-7">
           <NavLink to="/" className="group block">
             <span className="flex items-center gap-2.5">
-              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-accent-500 to-glow shadow-glow">
-                <Disc3 size={19} className="text-white" />
-              </span>
+              <Logo size={36} />
               <span className="text-[15px] font-extrabold tracking-[0.14em] text-zinc-100 transition-colors group-hover:text-white">
                 {siteName}
               </span>
@@ -292,9 +291,7 @@ export function Layout() {
         >
           <div className="mx-auto flex max-w-[1800px] items-center gap-3 px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] sm:px-6 lg:py-3.5">
             <NavLink to="/" aria-label="Home" className="shrink-0 lg:hidden">
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-accent-500 to-glow">
-                <Disc3 size={17} className="text-white" />
-              </span>
+              <Logo size={32} />
             </NavLink>
             <SearchBar className="min-w-0 max-w-xl flex-1" />
 

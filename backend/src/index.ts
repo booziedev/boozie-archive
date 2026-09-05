@@ -282,11 +282,19 @@ async function main() {
 
     /**
      * SPA fallback: a hard refresh on /albums/al_xxx has to return index.html.
-     * Unknown /api paths keep returning JSON 404s so the client can tell a
-     * missing record from a missing page.
+     *
+     * Only extension-less paths get it. A request for a file that isn't there —
+     * /icons/logo.png, a stale /assets/… bundle — must 404, not quietly answer
+     * with HTML: browsers then try to decode a page as an image, caches store
+     * the wrong thing, and an <img onError> fallback never fires. Unknown /api
+     * paths keep returning JSON 404s so the client can tell a missing record
+     * from a missing page.
      */
     app.setNotFoundHandler((request, reply) => {
-      if (request.method !== 'GET' || request.url.startsWith('/api/')) {
+      const pathname = request.url.split('?')[0] ?? '';
+      const looksLikeAFile = /\.[a-z0-9]{2,5}$/i.test(pathname);
+
+      if (request.method !== 'GET' || pathname.startsWith('/api/') || looksLikeAFile) {
         return reply.code(404).send({ error: 'Not found' });
       }
       return reply.header('Cache-Control', 'no-cache').sendFile('index.html');
