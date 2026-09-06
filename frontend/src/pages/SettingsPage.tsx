@@ -12,6 +12,7 @@ import {
   Trash2,
 } from 'lucide-react';
 
+import { AudioSettingsSection } from '../components/AudioSettings';
 import { PageHeader } from '../components/PageHeader';
 import { presence } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
@@ -280,6 +281,9 @@ export function SettingsPage() {
           </>
         )}
       </section>
+
+      {/* -------------------------------- sound ---------------------------- */}
+      <AudioSettingsSection />
 
       {/* ------------------------------- privacy --------------------------- */}
       {user && <PrivacySection />}

@@ -10,6 +10,20 @@ import {
 import type { ReactNode } from 'react';
 
 import { history, mediaUrl } from '../lib/api';
+import {
+  applyEq,
+  applyReplayGain,
+  attachAnalyser,
+  createAudioGraph,
+  resumeGraph,
+  type AudioGraph,
+} from '../lib/audioGraph';
+import {
+  DEFAULT_AUDIO_SETTINGS,
+  readAudioSettings,
+  writeAudioSettings,
+  type AudioSettings,
+} from '../lib/audioSettings';
 import { mediaCrossOrigin } from '../lib/config';
 import { useAuth } from './AuthContext';
 import type { Track } from '../lib/types';
@@ -107,6 +121,23 @@ export interface PlayerContextValue extends Playback {
   skipBy: (seconds: number) => void;
   /** The element's own position, which never lags behind React state. */
   getPosition: () => number;
+
+  /** Per-device playback settings: EQ, levelling, speed. */
+  audio: AudioSettings;
+  setAudio: (patch: Partial<AudioSettings>) => void;
+  /**
+   * True when the graph is actually in the path. False means the browser
+   * refused it or the setting is off, and the EQ controls have nothing to
+   * drive — the UI says so rather than pretending to work.
+   */
+  audioGraphReady: boolean;
+  /** An analyser tapped off the end of the chain, for level meters. */
+  getAnalyser: () => AnalyserNode | null;
+  /** Stop playback after this many minutes; null cancels. */
+  sleepTimerMinutes: number | null;
+  setSleepTimer: (minutes: number | null) => void;
+  /** Milliseconds left on the sleep timer, or null when it isn't running. */
+  sleepRemainingMs: number | null;
   setVolume: (value: number) => void;
   toggleMute: () => void;
   toggleShuffle: () => void;
@@ -169,6 +200,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const lastPositionRef = useRef(0);
   const loggedRef = useRef(false);
 
+  const graphRef = useRef<AudioGraph | null>(null);
+  const [audioGraphReady, setAudioGraphReady] = useState(false);
+  const [audio, setAudioState] = useState<AudioSettings>(DEFAULT_AUDIO_SETTINGS);
+
   const [playback, setPlayback] = useState<Playback>(EMPTY_PLAYBACK);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -192,14 +227,107 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   // One audio element for the whole app lifetime.
   if (audioRef.current === null && typeof window !== 'undefined') {
-    const audio = new Audio();
-    audio.preload = 'metadata';
+    const element = new Audio();
+    element.preload = 'metadata';
     // Only set when the API is cross-origin: the attribute makes the browser
     // send the session cookie, but demands CORS headers in return.
     const crossOrigin = mediaCrossOrigin();
-    if (crossOrigin) audio.crossOrigin = crossOrigin;
-    audioRef.current = audio;
+    if (crossOrigin) element.crossOrigin = crossOrigin;
+    audioRef.current = element;
   }
+
+  /**
+   * Build the graph once, on the first render that has both the element and
+   * the stored settings.
+   *
+   * Deliberately not conditional on the EQ being switched on: routing an
+   * element through a graph is irreversible, so the choice has to be made once
+   * and stuck to. Turning the EQ off flattens the filters; turning the graph
+   * off entirely takes a reload, which is what the setting says it does.
+   */
+  useEffect(() => {
+    const element = audioRef.current;
+    if (!element) return;
+
+    const stored = readAudioSettings();
+    setAudioState(stored);
+    if (!stored.enabled) return;
+
+    const graph = createAudioGraph(element);
+    graphRef.current = graph;
+    setAudioGraphReady(Boolean(graph));
+  }, []);
+
+  /**
+   * Levelling for the track now playing.
+   *
+   * Album mode falls back to the track value when a release wasn't scanned as
+   * an album, which is the common case for anything ripped a track at a time.
+   */
+  useEffect(() => {
+    if (audio.replayGain === 'off' || !current) {
+      applyReplayGain(graphRef.current, undefined, undefined, 0);
+      return;
+    }
+    const tags = current.replayGain;
+    const gainDb =
+      audio.replayGain === 'album'
+        ? (tags?.albumGainDb ?? tags?.trackGainDb)
+        : tags?.trackGainDb;
+    applyReplayGain(graphRef.current, gainDb, tags?.trackPeak, audio.replayGainPreampDb);
+  }, [audio.replayGain, audio.replayGainPreampDb, current]);
+
+  /** Push the curve whenever it changes, and whenever the EQ is toggled. */
+  useEffect(() => {
+    applyEq(graphRef.current, audio.eqOn ? audio.gains : [], audio.eqOn ? audio.preampDb : 0);
+  }, [audio.eqOn, audio.gains, audio.preampDb]);
+
+  const setAudio = useCallback((patch: Partial<AudioSettings>) => {
+    setAudioState((previous) => {
+      const next = { ...previous, ...patch };
+      writeAudioSettings(next);
+      return next;
+    });
+  }, []);
+
+  const getAnalyser = useCallback(() => attachAnalyser(graphRef.current), []);
+
+  // --- sleep timer -------------------------------------------------------
+
+  const [sleepUntil, setSleepUntil] = useState<number | null>(null);
+  const [sleepRemainingMs, setSleepRemainingMs] = useState<number | null>(null);
+
+  const setSleepTimer = useCallback((minutes: number | null) => {
+    setSleepUntil(minutes === null ? null : Date.now() + minutes * 60_000);
+  }, []);
+
+  /**
+   * Counts down and pauses when it reaches zero.
+   *
+   * It pauses rather than clearing the queue, so picking the music back up is
+   * one tap — the point is to fall asleep to it, not to lose your place.
+   */
+  useEffect(() => {
+    if (sleepUntil === null) {
+      setSleepRemainingMs(null);
+      return;
+    }
+
+    const tick = () => {
+      const remaining = sleepUntil - Date.now();
+      if (remaining <= 0) {
+        audioRef.current?.pause();
+        setSleepUntil(null);
+        setSleepRemainingMs(null);
+        return;
+      }
+      setSleepRemainingMs(remaining);
+    };
+
+    tick();
+    const timer = window.setInterval(tick, 1000);
+    return () => window.clearInterval(timer);
+  }, [sleepUntil]);
 
   /** Restores the last session (paused) so reopening the PWA feels continuous. */
   useEffect(() => {
@@ -282,6 +410,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const startElement = useCallback(() => {
     const audio = audioRef.current;
     if (!audio) return;
+    // The context starts suspended and may only be resumed from a user
+    // gesture; this runs inside the click chain that reaches play().
+    resumeGraph(graphRef.current);
     const promise = audio.play();
     if (promise) {
       promise.catch((reason: DOMException) => {
@@ -449,6 +580,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       audio.removeEventListener('ended', handleEnded);
     };
   }, [handleEnded, logPlay]);
+
+  useEffect(() => {
+    const element = audioRef.current;
+    if (element) element.playbackRate = audio.playbackRate;
+  }, [audio.playbackRate, loadedTrackId]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -699,6 +835,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       seek,
       skipBy,
       getPosition,
+      audio,
+      setAudio,
+      audioGraphReady,
+      getAnalyser,
+      sleepTimerMinutes: sleepUntil === null ? null : Math.ceil((sleepUntil - Date.now()) / 60_000),
+      setSleepTimer,
+      sleepRemainingMs,
       setVolume,
       toggleMute: () => setMuted((value) => !value),
       toggleShuffle,
@@ -714,8 +857,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       currentTime,
       cycleRepeat,
       duration,
+      audio,
+      audioGraphReady,
       enqueue,
       error,
+      getAnalyser,
       getPosition,
       isLoading,
       isPlaying,
@@ -734,9 +880,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       removeAt,
       repeat,
       seek,
+      setAudio,
+      setSleepTimer,
       setVolume,
       shuffle,
       skipBy,
+      sleepRemainingMs,
+      sleepUntil,
       toggle,
       toggleShuffle,
       volume,

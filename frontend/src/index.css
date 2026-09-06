@@ -240,6 +240,24 @@
   }
 
   /*
+   * A vertical EQ band slider.
+   *
+   * `writing-mode: vertical-lr` with a flipped direction is the modern way to
+   * stand a range input on end; the WebKit appearance fallback keeps Safari
+   * from rendering it horizontally in the middle of the row.
+   */
+  .eq-slider {
+    writing-mode: vertical-lr;
+    direction: rtl;
+    -webkit-appearance: slider-vertical;
+    width: 1.25rem;
+    height: 7rem;
+    cursor: pointer;
+    accent-color: rgb(var(--accent-500));
+    background: transparent;
+  }
+
+  /*
    * The bars in a "listening now" badge. Each one gets its own delay inline,
    * so the three read as a level meter rather than pulsing in unison. Under
    * reduced motion they hold at a readable height instead of stopping dead at
