@@ -16,6 +16,9 @@ interface RawQuery {
   offset?: string;
   artistId?: string;
   albumId?: string;
+  bpmMin?: string;
+  bpmMax?: string;
+  key?: string;
 }
 
 function parseQuery(raw: RawQuery) {
@@ -23,6 +26,8 @@ function parseQuery(raw: RawQuery) {
   const limit = raw.limit ? Number.parseInt(raw.limit, 10) : undefined;
   const offset = raw.offset ? Number.parseInt(raw.offset, 10) : undefined;
   const sort = raw.sort && SORT_KEYS.includes(raw.sort as SortKey) ? (raw.sort as SortKey) : undefined;
+  const bpmMin = raw.bpmMin ? Number.parseInt(raw.bpmMin, 10) : undefined;
+  const bpmMax = raw.bpmMax ? Number.parseInt(raw.bpmMax, 10) : undefined;
 
   return {
     q: raw.q?.trim() || undefined,
@@ -33,6 +38,9 @@ function parseQuery(raw: RawQuery) {
     offset: Number.isFinite(offset) ? offset : undefined,
     artistId: raw.artistId?.trim() || undefined,
     albumId: raw.albumId?.trim() || undefined,
+    bpmMin: Number.isFinite(bpmMin) ? bpmMin : undefined,
+    bpmMax: Number.isFinite(bpmMax) ? bpmMax : undefined,
+    key: raw.key?.trim() || undefined,
   };
 }
 
@@ -150,6 +158,9 @@ export const apiRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
   });
 
   app.get('/genres', async () => library.genres());
+  /** Musical keys and the tempo range, for the track filters. */
+  app.get('/keys', async () => library.keys());
+  app.get('/bpm-range', async () => library.bpmRange());
   app.get('/years', async () => library.years());
   app.get('/recent', async (request) => {
     const { limit } = parseQuery(request.query as RawQuery);

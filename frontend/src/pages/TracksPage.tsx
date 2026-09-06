@@ -19,6 +19,9 @@ export function TracksPage() {
     q: debouncedQuery || undefined,
     genre: state.genre || undefined,
     year: state.year === '' ? undefined : state.year,
+    bpmMin: state.bpmMin === '' ? undefined : state.bpmMin,
+    bpmMax: state.bpmMax === '' ? undefined : state.bpmMax,
+    key: state.key || undefined,
     sort: state.sort,
     limit: state.limit,
   });
@@ -71,6 +74,11 @@ export function TracksPage() {
         onGenreChange={(genre) => update({ genre })}
         year={state.year}
         onYearChange={(year) => update({ year })}
+        bpmMin={state.bpmMin}
+        bpmMax={state.bpmMax}
+        onBpmChange={(bpmMin, bpmMax) => update({ bpmMin, bpmMax })}
+        musicalKey={state.key}
+        onKeyChange={(key) => update({ key })}
         total={total}
         unit="tracks"
       />

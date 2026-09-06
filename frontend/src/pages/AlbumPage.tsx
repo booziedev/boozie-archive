@@ -1,5 +1,5 @@
 import { Link, useParams } from 'react-router-dom';
-import { ArrowLeft, Download, ListPlus, Play, Shuffle } from 'lucide-react';
+import { ArrowLeft, BookOpen, Download, ListPlus, Play, Shuffle } from 'lucide-react';
 
 import { CoverImage } from '../components/CoverImage';
 import { FavoriteButton } from '../components/FavoriteButton';
@@ -144,6 +144,20 @@ export function AlbumPage() {
               <ListPlus size={15} />
               Queue
             </button>
+            {/* Digital booklets shipped with the release — Qobuz's liner notes,
+                for anyone whose rips already carry the PDF. */}
+            {album.booklets?.map((booklet, index) => (
+              <a
+                key={booklet}
+                href={mediaUrl.booklet(album.id, index)}
+                target="_blank"
+                rel="noreferrer"
+                className="btn-ghost"
+              >
+                <BookOpen size={15} />
+                {album.booklets!.length > 1 ? `Booklet ${index + 1}` : 'Booklet'}
+              </a>
+            ))}
             <FavoriteButton kind="album" id={album.id} label={album.name} />
             <ShareButton
               attachment={{

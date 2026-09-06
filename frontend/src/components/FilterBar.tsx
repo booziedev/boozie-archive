@@ -1,6 +1,6 @@
 import { SlidersHorizontal, X } from 'lucide-react';
 
-import { useGenres, useYears } from '../hooks/useLibrary';
+import { useGenres, useKeys, useYears } from '../hooks/useLibrary';
 import { formatNumber } from '../lib/format';
 import type { SortKey } from '../lib/types';
 
@@ -19,6 +19,17 @@ interface FilterBarProps {
   /** Year filter is only meaningful for albums and tracks. */
   year?: number | '';
   onYearChange?: (value: number | '') => void;
+
+  /**
+   * Tempo and key, tracks only — the pair a DJ actually sorts by. Both are
+   * hidden unless the library has files tagged with them, so a collection that
+   * carries neither doesn't grow two dead controls.
+   */
+  bpmMin?: number | '';
+  bpmMax?: number | '';
+  onBpmChange?: (min: number | '', max: number | '') => void;
+  musicalKey?: string;
+  onKeyChange?: (value: string) => void;
 
   total?: number;
   unit?: string;
@@ -39,12 +50,18 @@ export function FilterBar({
   onGenreChange,
   year,
   onYearChange,
+  bpmMin,
+  bpmMax,
+  onBpmChange,
+  musicalKey,
+  onKeyChange,
   total,
   unit = 'results',
 }: FilterBarProps) {
   const { data: genres } = useGenres();
   const { data: years } = useYears();
-  const hasFilters = Boolean(query || genre || year);
+  const { data: keys } = useKeys();
+  const hasFilters = Boolean(query || genre || year || musicalKey || bpmMin || bpmMax);
 
   return (
     <div className="mb-6 flex flex-wrap items-center gap-2.5">
@@ -109,6 +126,51 @@ export function FilterBar({
         </select>
       )}
 
+      {onKeyChange && (keys?.length ?? 0) > 0 && (
+        <select
+          value={musicalKey ?? ''}
+          onChange={(event) => onKeyChange(event.target.value)}
+          aria-label="Filter by musical key"
+          className={selectClass}
+        >
+          <option value="">Any key</option>
+          {keys?.map((item) => (
+            <option key={item.key} value={item.key}>
+              {item.key} ({item.count})
+            </option>
+          ))}
+        </select>
+      )}
+
+      {onBpmChange && (
+        <span className="flex items-center gap-1 rounded-xl border border-white/10 px-2 py-1">
+          <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-600">BPM</label>
+          <input
+            type="number"
+            inputMode="numeric"
+            value={bpmMin ?? ''}
+            onChange={(event) =>
+              onBpmChange(event.target.value ? Number(event.target.value) : '', bpmMax ?? '')
+            }
+            placeholder="min"
+            aria-label="Minimum BPM"
+            className="w-14 bg-transparent px-1 py-1 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none"
+          />
+          <span className="text-zinc-700">–</span>
+          <input
+            type="number"
+            inputMode="numeric"
+            value={bpmMax ?? ''}
+            onChange={(event) =>
+              onBpmChange(bpmMin ?? '', event.target.value ? Number(event.target.value) : '')
+            }
+            placeholder="max"
+            aria-label="Maximum BPM"
+            className="w-14 bg-transparent px-1 py-1 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none"
+          />
+        </span>
+      )}
+
       {hasFilters && (
         <button
           type="button"
@@ -116,6 +178,8 @@ export function FilterBar({
             onQueryChange('');
             onGenreChange('');
             onYearChange?.('');
+            onKeyChange?.('');
+            onBpmChange?.('', '');
           }}
           className="inline-flex items-center gap-1 rounded-xl border border-white/10 px-2.5 py-2 text-xs text-zinc-400 transition-colors hover:border-white/20 hover:text-zinc-200"
         >

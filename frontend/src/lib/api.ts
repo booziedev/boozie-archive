@@ -15,6 +15,7 @@ import type {
   Invite,
   LibraryStats,
   HistoryRange,
+  Lyrics,
   Message,
   NowPlaying,
   Page,
@@ -89,6 +90,9 @@ export interface ListParams {
   q?: string;
   genre?: string;
   year?: number;
+  bpmMin?: number;
+  bpmMax?: number;
+  key?: string;
   sort?: SortKey;
   limit?: number;
   offset?: number;
@@ -391,6 +395,9 @@ export const api = {
 
   search: (q: string, limit = 6) => request<SearchResults>(`/api/search${qs({ q, limit })}`),
   genres: () => request<{ name: string; count: number }[]>('/api/genres'),
+  keys: () => request<{ key: string; count: number }[]>('/api/keys'),
+  bpmRange: () => request<{ min: number; max: number } | null>('/api/bpm-range'),
+  lyrics: (trackId: string) => request<Lyrics>(`/api/lyrics/${encodeURIComponent(trackId)}`),
   years: () => request<{ year: number; count: number }[]>('/api/years'),
   recent: (limit = 18) => request<Album[]>(`/api/recent${qs({ limit })}`),
 };
@@ -401,4 +408,7 @@ export const mediaUrl = {
   download: (trackId: string) => apiUrl(`/api/download/${encodeURIComponent(trackId)}`),
   cover: (id: string, size: 128 | 320 | 640 = 320) =>
     apiUrl(`/api/cover/${encodeURIComponent(id)}?size=${size}`),
+  /** A digital booklet, addressed by its position in the album's list. */
+  booklet: (albumId: string, index: number) =>
+    apiUrl(`/api/booklet/${encodeURIComponent(albumId)}/${index}`),
 };

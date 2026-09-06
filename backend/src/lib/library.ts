@@ -22,6 +22,11 @@ export interface ListQuery {
   sort?: SortKey;
   limit?: number;
   offset?: number;
+  /** Tracks only: inclusive tempo window, for anyone building a set. */
+  bpmMin?: number;
+  bpmMax?: number;
+  /** Tracks only: musical key exactly as the tag writes it. */
+  key?: string;
 }
 
 const EMPTY_INDEX: LibraryIndex = {
@@ -315,6 +320,19 @@ export class Library {
     }
     if (query.year) items = items.filter((t) => t.year === query.year);
 
+    // Tempo and key only exist on files whose tags carry them, so filtering by
+    // either also excludes everything untagged — which is the intent.
+    if (query.bpmMin !== undefined) {
+      items = items.filter((t) => t.bpm !== undefined && t.bpm >= query.bpmMin!);
+    }
+    if (query.bpmMax !== undefined) {
+      items = items.filter((t) => t.bpm !== undefined && t.bpm <= query.bpmMax!);
+    }
+    if (query.key) {
+      const key = query.key.toLowerCase();
+      items = items.filter((t) => t.key?.toLowerCase() === key);
+    }
+
     const sort = query.sort ?? (query.albumId ? 'name' : 'name');
     const sorted =
       query.albumId && sort === 'name'
@@ -331,6 +349,30 @@ export class Library {
       albums: this.listAlbums({ q, limit }).items,
       tracks: this.listTracks({ q, limit }).items,
     };
+  }
+
+  /** Musical keys present in the library, with counts. Tagged files only. */
+  keys(): { key: string; count: number }[] {
+    const counts = new Map<string, number>();
+    for (const track of this.index.tracks) {
+      if (!track.key) continue;
+      counts.set(track.key, (counts.get(track.key) ?? 0) + 1);
+    }
+    return [...counts.entries()]
+      .map(([key, count]) => ({ key, count }))
+      .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
+  }
+
+  /** The tempo range across everything tagged, for sizing a BPM control. */
+  bpmRange(): { min: number; max: number } | null {
+    let min = Infinity;
+    let max = -Infinity;
+    for (const track of this.index.tracks) {
+      if (track.bpm === undefined) continue;
+      if (track.bpm < min) min = track.bpm;
+      if (track.bpm > max) max = track.bpm;
+    }
+    return Number.isFinite(min) ? { min: Math.floor(min), max: Math.ceil(max) } : null;
   }
 
   /** Most recently added albums (by newest file mtime in the album). */

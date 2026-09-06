@@ -26,6 +26,53 @@ export interface Track {
   mtimeMs: number;
   hasEmbeddedCover: boolean;
   coverId: string | null;
+
+  /**
+   * Everything the tags carry beyond the basics. Absent means the file didn't
+   * say so — most tracks have none of it.
+   */
+  credits?: Credits;
+  bpm?: number;
+  key?: string;
+  mood?: string;
+  isrc?: string;
+  replayGain?: ReplayGain;
+  lyrics?: string;
+  lyricsFile?: string;
+  work?: string;
+  movement?: string;
+}
+
+/** Liner notes, as far as the file records them. */
+export interface Credits {
+  composer?: string[];
+  conductor?: string[];
+  lyricist?: string[];
+  writer?: string[];
+  remixer?: string[];
+  engineer?: string[];
+  producer?: string[];
+  label?: string[];
+  catalogNumber?: string[];
+}
+
+/** Loudness normalisation in dB, with the peak as a 0..1 ratio. */
+export interface ReplayGain {
+  trackGainDb?: number;
+  trackPeak?: number;
+  albumGainDb?: number;
+}
+
+/** A line of time-synced lyrics from an .lrc sidecar. */
+export interface LyricLine {
+  at: number;
+  text: string;
+}
+
+export interface Lyrics {
+  source: 'lrc' | 'tags';
+  synced: LyricLine[];
+  text: string;
 }
 
 export interface Album {
@@ -42,6 +89,8 @@ export interface Album {
   addedAt: number;
   folder: string;
   hasCover: boolean;
+  /** Digital booklets in the album folder, addressed by index when fetched. */
+  booklets?: string[];
 }
 
 export interface Artist {

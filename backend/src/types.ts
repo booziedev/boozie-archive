@@ -48,6 +48,54 @@ export interface Track {
   hasEmbeddedCover: boolean;
   /** Which entity owns the artwork used for this track (usually its album). */
   coverId: string | null;
+
+  /**
+   * Everything the tags carry beyond the basics.
+   *
+   * Optional on purpose: most files have none of it, and an index of 100k
+   * tracks should not carry 100k empty objects. Absent means "the file didn't
+   * say", never "we didn't look".
+   */
+  credits?: Credits;
+  /** Beats per minute, where the file states one. */
+  bpm?: number;
+  /** Musical key as written in the tag, e.g. "Am" or "8A". */
+  key?: string;
+  mood?: string;
+  isrc?: string;
+  /** Loudness normalisation, in dB relative to the reference level. */
+  replayGain?: ReplayGain;
+  /** Plain lyrics from the tags, or the path to an .lrc file beside the audio. */
+  lyrics?: string;
+  lyricsFile?: string;
+  /** Classical releases: the work and movement this track belongs to. */
+  work?: string;
+  movement?: string;
+}
+
+/** Liner notes, as far as the file records them. */
+export interface Credits {
+  composer?: string[];
+  conductor?: string[];
+  lyricist?: string[];
+  writer?: string[];
+  remixer?: string[];
+  engineer?: string[];
+  producer?: string[];
+  label?: string[];
+  catalogNumber?: string[];
+}
+
+/**
+ * ReplayGain values, in dB, with the peak as a 0..1 ratio.
+ *
+ * The peak is what stops levelling from clipping: applying a positive gain to
+ * a track that already peaks near full scale would distort it.
+ */
+export interface ReplayGain {
+  trackGainDb?: number;
+  trackPeak?: number;
+  albumGainDb?: number;
 }
 
 export interface Album {
@@ -69,6 +117,11 @@ export interface Album {
   /** Album folder relative to MUSIC_ROOT (best-effort, for display/debug). */
   folder: string;
   hasCover: boolean;
+  /**
+   * Digital booklets found in the album folder, relative to MUSIC_ROOT.
+   * Omitted when there are none, which is most releases.
+   */
+  booklets?: string[];
 }
 
 export interface Artist {

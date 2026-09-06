@@ -75,6 +75,11 @@ export function useGenres() {
   return useQuery({ queryKey: ['genres'], queryFn: api.genres, staleTime: FIVE_MINUTES });
 }
 
+/** Musical keys present in the library. Empty when nothing is tagged with one. */
+export function useKeys() {
+  return useQuery({ queryKey: ['keys'], queryFn: api.keys, staleTime: FIVE_MINUTES });
+}
+
 export function useYears() {
   return useQuery({ queryKey: ['years'], queryFn: api.years, staleTime: FIVE_MINUTES });
 }

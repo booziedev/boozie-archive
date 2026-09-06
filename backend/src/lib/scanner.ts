@@ -13,7 +13,12 @@ import { clean, parseAlbumFolder, splitGenres, titleFromFilename } from './text.
 import type { Album, Artist, CoverSource, LibraryIndex, Track } from '../types.js';
 
 /** Bumped whenever the on-disk index shape changes. */
-export const INDEX_VERSION = 3;
+/*
+ * Bumped whenever buildTrack starts keeping something new: the incremental
+ * scan reuses cached rows by path+size+mtime, so without this an existing
+ * library would never pick the new fields up.
+ */
+export const INDEX_VERSION = 4;
 
 /** Directories that never contain music worth indexing. */
 const SKIPPED_DIRS = new Set([
@@ -50,12 +55,24 @@ export interface DiscoveredFile {
   rel: string;
   size: number;
   mtimeMs: number;
+  /** Relative path of an .lrc sitting beside this file, when there is one. */
+  lyricsFile?: string;
 }
 
 interface WalkResult {
   audio: DiscoveredFile[];
   /** relative directory -> image filenames found in it (priority sorted). */
   imagesByDir: Map<string, string[]>;
+  /** relative directory -> booklet/PDF filenames found in it. */
+  docsByDir: Map<string, string[]>;
+  /**
+   * Lowercased basename -> the .lrc's real filename, keyed by directory.
+   *
+   * Matching is case-insensitive because tags and filenames rarely agree on
+   * case, but the *stored* name has to be the real one: the Pi's filesystem is
+   * case-sensitive, and a lowercased path simply would not open.
+   */
+  lyricsByDir: Map<string, Map<string, string>>;
 }
 
 function extensionOf(filename: string): string {
@@ -83,6 +100,8 @@ export async function walkLibrary(
 ): Promise<WalkResult> {
   const audio: DiscoveredFile[] = [];
   const imagesByDir = new Map<string, string[]>();
+  const docsByDir = new Map<string, string[]>();
+  const lyricsByDir = new Map<string, Map<string, string>>();
   const queue: string[] = [root];
   const visited = new Set<string>();
 
@@ -97,6 +116,7 @@ export async function walkLibrary(
 
     const relDir = path.relative(root, dir).split(path.sep).join('/');
     const images: string[] = [];
+    const docs: string[] = [];
 
     for (const entry of entries) {
       const name = entry.name;
@@ -140,6 +160,19 @@ export async function walkLibrary(
         images.push(name);
         continue;
       }
+      // Digital booklets — the liner notes Qobuz ships beside a release, and
+      // which plenty of rips already carry next to the audio.
+      if (ext === 'pdf') {
+        docs.push(name);
+        continue;
+      }
+      // Sidecar lyrics, matched to their track by basename below.
+      if (ext === 'lrc') {
+        const found = lyricsByDir.get(relDir) ?? new Map<string, string>();
+        found.set(name.slice(0, -4).toLowerCase(), name);
+        lyricsByDir.set(relDir, found);
+        continue;
+      }
       if (!AUDIO_EXTENSIONS.has(ext)) continue;
 
       try {
@@ -161,10 +194,26 @@ export async function walkLibrary(
       images.sort((a, b) => coverPriority(a) - coverPriority(b) || a.localeCompare(b));
       imagesByDir.set(relDir, images);
     }
+    if (docs.length > 0) docsByDir.set(relDir, docs.sort());
+  }
+
+  /*
+   * Attach each .lrc to the track it names.
+   *
+   * Done after the walk rather than inside it because directory entries arrive
+   * in no particular order: the lyrics file may be read before the audio.
+   */
+  for (const file of audio) {
+    const slash = file.rel.lastIndexOf('/');
+    const relDir = slash === -1 ? '' : file.rel.slice(0, slash);
+    const fileName = slash === -1 ? file.rel : file.rel.slice(slash + 1);
+    const base = fileName.slice(0, fileName.lastIndexOf('.')).toLowerCase();
+    const actual = lyricsByDir.get(relDir)?.get(base);
+    if (actual) file.lyricsFile = `${relDir ? `${relDir}/` : ''}${actual}`;
   }
 
   audio.sort((a, b) => a.rel.localeCompare(b.rel));
-  return { audio, imagesByDir };
+  return { audio, imagesByDir, docsByDir, lyricsByDir };
 }
 
 /**
@@ -213,6 +262,85 @@ function trackNoFromFilename(fileName: string): number | null {
  * structure whenever a tag is missing. This is the heart of "prefer metadata
  * but respect folders".
  */
+
+/**
+ * A tag list, cleaned and capped.
+ *
+ * Credits arrive as arrays in some formats and as one semicolon-joined string
+ * in others, so both are flattened the same way. The cap is defensive: a
+ * pathological file should not put a thousand names into the index.
+ */
+function people(value: string[] | string | undefined): string[] | undefined {
+  if (!value) return undefined;
+  const list = (Array.isArray(value) ? value : [value])
+    .flatMap((entry) => String(entry).split(/[;/]|\s+&\s+/))
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .slice(0, 24);
+  return list.length > 0 ? [...new Set(list)] : undefined;
+}
+
+/** Drops an object whose every value is undefined, so it isn't stored empty. */
+function compact<T extends object>(value: T): T | undefined {
+  return Object.values(value).some((entry) => entry !== undefined) ? value : undefined;
+}
+
+/** The dB figure from a ReplayGain tag, ignoring implausible values. */
+function gainDb(value: { dB?: number } | undefined): number | undefined {
+  const db = value?.dB;
+  // Real ReplayGain values sit within a few dB of zero; ±60 is a broken tag.
+  return typeof db === 'number' && Number.isFinite(db) && Math.abs(db) <= 60 ? db : undefined;
+}
+
+function ratio(value: { ratio?: number } | undefined): number | undefined {
+  const peak = value?.ratio;
+  return typeof peak === 'number' && Number.isFinite(peak) && peak > 0 ? peak : undefined;
+}
+
+/** The first non-empty block of plain lyrics the tags carry. */
+function plainLyrics(tags: IAudioMetadata['common']['lyrics']): string | undefined {
+  for (const entry of tags ?? []) {
+    const text = entry.text?.trim();
+    if (text) return text.slice(0, 20_000);
+    // Synchronised lyrics still read fine with the timings dropped.
+    if (entry.syncText?.length) {
+      const joined = entry.syncText
+        .map((line) => line.text?.trim())
+        .filter(Boolean)
+        .join('\n')
+        .trim();
+      if (joined) return joined.slice(0, 20_000);
+    }
+  }
+  return undefined;
+}
+
+
+/**
+ * Producer and engineer credits from ID3's involved-people list.
+ *
+ * `music-metadata` maps most credits onto `common`, but not these: IPLS (v2.3)
+ * and TIPL (v2.4) are role/name pairs that only appear on the native frame,
+ * already parsed into a map of role -> names. Other containers put the same
+ * information on `common` directly, so this only fills the gaps.
+ */
+function involvedPeople(meta: IAudioMetadata | null, role: string): string[] | undefined {
+  for (const frames of Object.values(meta?.native ?? {})) {
+    for (const frame of frames) {
+      if (frame.id !== 'IPLS' && frame.id !== 'TIPL' && frame.id !== 'TMCL') continue;
+      const value = frame.value as Record<string, unknown> | undefined;
+      if (!value || typeof value !== 'object') continue;
+      // Roles are written by hand and their case is not dependable.
+      for (const [key, names] of Object.entries(value)) {
+        if (key.toLowerCase() !== role) continue;
+        const list = people(names as string[] | string);
+        if (list) return list;
+      }
+    }
+  }
+  return undefined;
+}
+
 export function buildTrack(file: DiscoveredFile, meta: IAudioMetadata | null): Track {
   const { fileName, albumFolder, artistFolder, discNo: folderDiscNo } = folderContext(file.rel);
   const folderAlbum = albumFolder ? parseAlbumFolder(albumFolder) : { name: '', year: null };
@@ -265,6 +393,33 @@ export function buildTrack(file: DiscoveredFile, meta: IAudioMetadata | null): T
     mtimeMs: file.mtimeMs,
     hasEmbeddedCover: (common?.picture?.length ?? 0) > 0,
     coverId: albumIdValue,
+
+    // Everything below is omitted when the file doesn't carry it, so the index
+    // stays small for the overwhelming majority of tracks that have none of it.
+    credits: compact({
+      composer: people(common?.composer),
+      conductor: people(common?.conductor),
+      lyricist: people(common?.lyricist),
+      writer: people(common?.writer),
+      remixer: people(common?.remixer),
+      engineer: people(common?.engineer) ?? involvedPeople(meta, 'engineer'),
+      producer: people(common?.producer) ?? involvedPeople(meta, 'producer'),
+      label: people(common?.label),
+      catalogNumber: people(common?.catalognumber),
+    }),
+    bpm: typeof common?.bpm === 'number' && common.bpm > 0 ? Math.round(common.bpm) : undefined,
+    key: clean(common?.key) ?? undefined,
+    mood: clean(common?.mood) ?? undefined,
+    isrc: people(common?.isrc)?.[0],
+    replayGain: compact({
+      trackGainDb: gainDb(common?.replaygain_track_gain),
+      trackPeak: ratio(common?.replaygain_track_peak),
+      albumGainDb: gainDb(common?.replaygain_album_gain),
+    }),
+    lyrics: plainLyrics(common?.lyrics),
+    lyricsFile: file.lyricsFile,
+    work: clean(common?.work) ?? undefined,
+    movement: clean(common?.movement) ?? undefined,
   };
 }
 
@@ -304,7 +459,7 @@ export async function scanLibrary(options: ScanOptions): Promise<LibraryIndex> {
   for (const track of previous?.tracks ?? []) previousByPath.set(track.path, track);
 
   logger?.info(`Scanning ${root} ...`);
-  const { audio, imagesByDir } = await walkLibrary(root, {
+  const { audio, imagesByDir, docsByDir } = await walkLibrary(root, {
     followSymlinks: options.followSymlinks,
     onFile: (count) => {
       if (progress) progress.filesFound = count;
@@ -323,7 +478,18 @@ export async function scanLibrary(options: ScanOptions): Promise<LibraryIndex> {
     async ({ file, index }) => {
       const cached = previousByPath.get(file.rel);
       if (cached && cached.size === file.size && cached.mtimeMs === file.mtimeMs) {
-        tracks[index] = cached;
+        /*
+         * Reuse the parsed tags, but take the sidecar from this walk.
+         *
+         * Everything else in a cached row came out of the file, whose size and
+         * mtime just proved unchanged. `lyricsFile` did not — it comes from
+         * what is sitting *next to* the file, so dropping an .lrc into a folder
+         * would otherwise never be noticed without a full re-parse.
+         */
+        tracks[index] =
+          cached.lyricsFile === file.lyricsFile
+            ? cached
+            : { ...cached, lyricsFile: file.lyricsFile };
         reused += 1;
         if (progress) progress.filesReused = reused;
         return;
@@ -344,7 +510,7 @@ export async function scanLibrary(options: ScanOptions): Promise<LibraryIndex> {
     },
   );
 
-  const index = aggregate(root, tracks, imagesByDir, startedAt);
+  const index = aggregate(root, tracks, imagesByDir, startedAt, docsByDir);
   logger?.info(
     `Scan complete in ${Math.round((Date.now() - startedAt) / 1000)}s — ` +
       `${index.tracks.length} tracks, ${index.albums.length} albums, ${index.artists.length} artists ` +
@@ -359,6 +525,7 @@ export function aggregate(
   rawTracks: Track[],
   imagesByDir: Map<string, string[]>,
   startedAt: number,
+  docsByDir: Map<string, string[]> = new Map(),
 ): LibraryIndex {
   const tracks = rawTracks.filter(Boolean);
   const covers: Record<string, CoverSource> = {};
@@ -439,6 +606,13 @@ export function aggregate(
       covers[album.id] = { kind: 'file', path: bestDir ? `${bestDir}/${images[0]}` : images[0]! };
     }
     album.hasCover = Boolean(covers[album.id]);
+
+    // Liner notes shipped with the release, if the folder has any.
+    const docs = docsByDir.get(bestDir);
+    if (docs && docs.length > 0) {
+      album.booklets = docs.map((name) => (bestDir ? `${bestDir}/${name}` : name));
+    }
+
     albums.push(album);
   }
 

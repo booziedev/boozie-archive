@@ -1,9 +1,11 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Download, ListPlus, Pause, Play } from 'lucide-react';
+import { Download, Info, ListPlus, Pause, Play } from 'lucide-react';
 
 import { CoverImage } from './CoverImage';
 import { FavoriteButton } from './FavoriteButton';
 import { ShareButton } from './ShareDialog';
+import { TrackDetails } from './TrackDetails';
 import { mediaUrl } from '../lib/api';
 import { formatDuration, isHiRes, qualityLabel } from '../lib/format';
 import { usePlayer } from '../context/PlayerContext';
@@ -37,6 +39,7 @@ function NowPlayingBars() {
 
 export function TrackRow({ track, tracks, index, variant = 'flat', playCount }: TrackRowProps) {
   const { current, isPlaying, playTracks, toggle, enqueue } = usePlayer();
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const isCurrent = current?.id === track.id;
   const hiRes = isHiRes(track);
   // On an album page every row would otherwise repeat the album artist.
@@ -151,6 +154,15 @@ export function TrackRow({ track, tracks, index, variant = 'flat', playCount }: 
         <div className="flex items-center opacity-0 transition-opacity duration-200 focus-within:opacity-100 group-hover:opacity-100 max-sm:opacity-100">
           <button
             type="button"
+            onClick={() => setDetailsOpen(true)}
+            aria-label={`Details for ${track.title}`}
+            title="Credits, lyrics and file details"
+            className="icon-btn h-8 w-8"
+          >
+            <Info size={15} />
+          </button>
+          <button
+            type="button"
             onClick={() => enqueue([track], 'end')}
             title="Add to queue"
             aria-label={`Add ${track.title} to the queue`}
@@ -198,6 +210,8 @@ export function TrackRow({ track, tracks, index, variant = 'flat', playCount }: 
           {formatDuration(track.duration)}
         </span>
       </div>
+
+      {detailsOpen && <TrackDetails track={track} onClose={() => setDetailsOpen(false)} />}
     </div>
   );
 }

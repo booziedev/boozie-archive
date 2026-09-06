@@ -11,6 +11,10 @@ export interface ListState {
   year: number | '';
   sort: SortKey;
   limit: number;
+  /** Tracks only; ignored by the artist and album lists. */
+  bpmMin: number | '';
+  bpmMax: number | '';
+  key: string;
 }
 
 /**
@@ -26,12 +30,17 @@ export function useListState(defaultSort: SortKey = 'name', pageSize = 60) {
     const rawSort = params.get('sort');
     const rawYear = Number.parseInt(params.get('year') ?? '', 10);
     const rawLimit = Number.parseInt(params.get('limit') ?? '', 10);
+    const rawBpmMin = Number.parseInt(params.get('bpmMin') ?? '', 10);
+    const rawBpmMax = Number.parseInt(params.get('bpmMax') ?? '', 10);
     return {
       q: params.get('q') ?? '',
       genre: params.get('genre') ?? '',
       year: Number.isFinite(rawYear) ? rawYear : '',
       sort: rawSort && SORT_KEYS.includes(rawSort as SortKey) ? (rawSort as SortKey) : defaultSort,
       limit: Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : pageSize,
+      bpmMin: Number.isFinite(rawBpmMin) ? rawBpmMin : '',
+      bpmMax: Number.isFinite(rawBpmMax) ? rawBpmMax : '',
+      key: params.get('key') ?? '',
     };
   }, [params, defaultSort, pageSize]);
 

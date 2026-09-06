@@ -112,6 +112,37 @@ async function sendFile(
 }
 
 /** Audio streaming, downloads and cover art. */
+
+/**
+ * Parses an .lrc file into timed lines.
+ *
+ * The format puts one or more `[mm:ss.xx]` stamps in front of each line, and
+ * a header block of `[ti:]`/`[ar:]` tags that carry no timing. Anything that
+ * doesn't parse is still returned as plain text, so a malformed file degrades
+ * to readable lyrics rather than to nothing.
+ */
+export function parseLrc(text: string): { lines: { at: number; text: string }[]; plain: string } {
+  const lines: { at: number; text: string }[] = [];
+  const plain: string[] = [];
+
+  for (const raw of text.split(/\r?\n/)) {
+    const stamps = [...raw.matchAll(/\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\]/g)];
+    const body = raw.replace(/\[[^\]]*\]/g, '').trim();
+    if (!body) continue;
+    plain.push(body);
+    for (const stamp of stamps) {
+      const minutes = Number.parseInt(stamp[1]!, 10);
+      const seconds = Number.parseInt(stamp[2]!, 10);
+      // A two-digit fraction is centiseconds, three is milliseconds.
+      const fraction = stamp[3] ? Number.parseInt(stamp[3].padEnd(3, '0'), 10) / 1000 : 0;
+      lines.push({ at: minutes * 60 + seconds + fraction, text: body });
+    }
+  }
+
+  lines.sort((a, b) => a.at - b.at);
+  return { lines, plain: plain.join('\n') };
+}
+
 export const mediaRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
   /** Inline playback — the URL the <audio> element points at. */
   app.get('/stream/:id', async (request, reply) => {
@@ -171,6 +202,58 @@ export const mediaRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
       disposition: contentDisposition(`${id}.jpg`, 'inline'),
       rangeHeader: undefined,
       cacheControl: 'public, max-age=604800',
+    });
+  });
+
+  /**
+   * Lyrics for a track: an .lrc sitting beside the audio if there is one,
+   * otherwise whatever the tags carry.
+   *
+   * The sidecar wins because it is the one a person put there deliberately,
+   * and it is the only source that can be time-synced.
+   */
+  app.get('/lyrics/:id', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const track = library.getTrack(id);
+    if (!track) return reply.code(404).send({ error: 'Track not found' });
+
+    if (track.lyricsFile) {
+      const abs = safeJoin(config.musicRoot, track.lyricsFile);
+      if (abs) {
+        try {
+          const text = await fsp.readFile(abs, 'utf8');
+          const { lines, plain } = parseLrc(text);
+          return { source: 'lrc', synced: lines, text: plain || text.slice(0, 20_000) };
+        } catch {
+          // Deleted since the scan — fall through to the embedded tags.
+        }
+      }
+    }
+
+    if (track.lyrics) return { source: 'tags', synced: [], text: track.lyrics };
+    return reply.code(404).send({ error: 'No lyrics for this track' });
+  });
+
+  /**
+   * A digital booklet from the album folder, addressed by its position in the
+   * album's list rather than by path — a client never names a file on disk.
+   */
+  app.get('/booklet/:albumId/:index', async (request, reply) => {
+    const { albumId, index } = request.params as { albumId: string; index: string };
+    const album = library.getAlbum(albumId);
+    const booklets = album?.booklets ?? [];
+    const position = Number.parseInt(index, 10);
+    const relative = Number.isFinite(position) ? booklets[position] : undefined;
+    if (!relative) return reply.code(404).send({ error: 'No such booklet' });
+
+    const abs = safeJoin(config.musicRoot, relative);
+    if (!abs) return reply.code(400).send({ error: 'Invalid booklet path' });
+
+    return sendFile(reply, abs, {
+      contentType: 'application/pdf',
+      disposition: contentDisposition(path.basename(relative), 'inline'),
+      rangeHeader: request.headers.range,
+      cacheControl: 'public, max-age=86400',
     });
   });
 };

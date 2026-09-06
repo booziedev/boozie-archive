@@ -5,7 +5,12 @@ A personal music archiv
 - Browse by **artist → album → track**, or search every track flat
 - **In-browser playback** with real seeking (HTTP range requests) and a queue
 - **Direct download** of any file, untouched
-- **Full embedded metadata** read with [`music-metadata`](https://github.com/Borewit/music-metadata)
+- **Full embedded metadata** read with [`music-metadata`](https://github.com/Borewit/music-metadata),
+  including credits, tempo, key, ISRC and ReplayGain where the tags carry them
+- **Lyrics** from embedded tags or an `.lrc` sitting beside the audio, and **booklets**
+  from a PDF in the album folder
+- **Listening history** — recently played, play counts, and a recap you can read any
+  time of year rather than only in December
 - **Cover art** from embedded tags or `cover.jpg` / `folder.jpg` next to the audio
 - **Favourites** stored on the device, **filters** by genre, year, format
 - **Invite-only accounts** backed by PostgreSQL, with a Discord-style admin panel
@@ -42,6 +47,18 @@ npm --prefix frontend run build && pm2 restart boozie-archive-api
 Until `logo.png` exists the app falls back to a built-in disc glyph, so nothing
 is ever broken. `npm run icons -- path/to/art.png` reads from somewhere else if
 you'd rather not copy the file in first.
+
+## Upgrading an existing library
+
+Some releases add fields the scanner didn't previously keep. Because incremental scans
+reuse anything whose size and mtime are unchanged, those need one full re-read:
+
+```bash
+npm --prefix backend run scan
+```
+
+It re-parses every file, so on a large collection give it time — it is a one-off, and
+normal incremental scans resume afterwards.
 
 ## Guides
 
