@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Download, Info, ListPlus, Pause, Play } from 'lucide-react';
 
+import { AddToPlaylist } from './AddToPlaylist';
 import { CoverImage } from './CoverImage';
 import { FavoriteButton } from './FavoriteButton';
 import { ShareButton } from './ShareDialog';
@@ -170,6 +171,9 @@ export function TrackRow({ track, tracks, index, variant = 'flat', playCount }: 
           >
             <ListPlus size={16} />
           </button>
+          <span className="hidden sm:inline-flex">
+            <AddToPlaylist trackIds={[track.id]} />
+          </span>
           <a
             href={mediaUrl.download(track.id)}
             download

@@ -17,6 +17,7 @@ import { authRoutes, inviteThrottle, loginThrottle } from './routes/auth.js';
 import { describeFrontendBuild } from './lib/build.js';
 import { historyRoutes } from './routes/history.js';
 import { mediaRoutes } from './routes/media.js';
+import { playlistRoutes } from './routes/playlists.js';
 import { presenceRoutes } from './routes/presence.js';
 import { socialRoutes } from './routes/social.js';
 import { stickerRoutes } from './routes/stickers.js';
@@ -174,6 +175,7 @@ async function main() {
     '/api/presence',
     '/api/parties',
     '/api/history',
+    '/api/playlists',
     '/api/suggestions',
     '/api/stickers/',
   ];
@@ -281,6 +283,7 @@ async function main() {
     await app.register(socialRoutes, { prefix: '/api' });
     await app.register(presenceRoutes, { prefix: '/api' });
     await app.register(historyRoutes, { prefix: '/api' });
+    await app.register(playlistRoutes, { prefix: '/api' });
     await app.register(stickerRoutes, { prefix: '/api' });
     await app.register(suggestionRoutes, { prefix: '/api' });
   }

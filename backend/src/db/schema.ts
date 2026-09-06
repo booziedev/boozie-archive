@@ -339,4 +339,61 @@ export const migrations: Migration[] = [
         ON play_history (user_id, artist);
     `,
   },
+  {
+    id: '008_playlists',
+    sql: /* sql */ `
+      CREATE TABLE IF NOT EXISTS playlists (
+        id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        owner_id      uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name          text NOT NULL,
+        description   text,
+        /*
+         * Who can open it. 'friends' is the default for the same reason the
+         * status setting defaults there: an archive this small is social, but
+         * nothing should become visible without someone choosing it.
+         */
+        visibility    text NOT NULL DEFAULT 'friends'
+                      CHECK (visibility IN ('everyone', 'friends', 'private')),
+        /** When true, the owner's friends may add and remove tracks too. */
+        collaborative boolean NOT NULL DEFAULT false,
+        /*
+         * Generated playlists — Blend — are rebuilt from listening history
+         * rather than edited by hand, so they are marked and their second
+         * member is recorded.
+         */
+        kind          text NOT NULL DEFAULT 'manual' CHECK (kind IN ('manual', 'blend')),
+        blend_with    uuid REFERENCES users(id) ON DELETE CASCADE,
+        created_at    timestamptz NOT NULL DEFAULT now(),
+        updated_at    timestamptz NOT NULL DEFAULT now()
+      );
+
+      CREATE INDEX IF NOT EXISTS playlists_owner_idx ON playlists (owner_id, updated_at DESC);
+      -- One blend per pair, so opening it twice doesn't make a second copy.
+      CREATE UNIQUE INDEX IF NOT EXISTS playlists_blend_pair_key
+        ON playlists (least(owner_id, blend_with), greatest(owner_id, blend_with))
+        WHERE kind = 'blend';
+
+      CREATE TABLE IF NOT EXISTS playlist_tracks (
+        playlist_id uuid NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+        /*
+         * Track ids come from the library index, not a table, so there is no
+         * foreign key to hang this on — the labels are kept alongside for the
+         * same reason the play log keeps them: a rescan can change an id.
+         */
+        track_id    text NOT NULL,
+        title       text NOT NULL,
+        artist      text NOT NULL,
+        album       text,
+        album_id    text,
+        duration    double precision,
+        position    integer NOT NULL,
+        added_by    uuid REFERENCES users(id) ON DELETE SET NULL,
+        added_at    timestamptz NOT NULL DEFAULT now(),
+        PRIMARY KEY (playlist_id, track_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS playlist_tracks_order_idx
+        ON playlist_tracks (playlist_id, position);
+    `,
+  },
 ];

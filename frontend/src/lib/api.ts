@@ -22,6 +22,9 @@ import type {
   PartyState,
   PendingProfile,
   PlayRecord,
+  Playlist,
+  PlaylistEntry,
+  PlaylistVisibility,
   PrivacySettings,
   PublicProfile,
   Recap,
@@ -352,6 +355,54 @@ export const history = {
   recap: (range: HistoryRange = 'year') =>
     request<{ recap: Recap }>(`/api/history/recap?range=${range}`),
   clear: () => jsonRequest<{ deleted: number }>('/api/history', 'DELETE'),
+};
+
+/**
+ * Playlists.
+ *
+ * Every response carries the whole playlist back so a caller never has to
+ * guess what changed — the track count and cover move as tracks are added.
+ */
+export const playlists = {
+  list: () => request<{ playlists: Playlist[] }>('/api/playlists'),
+  get: (id: string) =>
+    request<{ playlist: Playlist; entries: PlaylistEntry[] }>(
+      `/api/playlists/${encodeURIComponent(id)}`,
+    ),
+  create: (input: {
+    name: string;
+    description?: string | null;
+    visibility?: PlaylistVisibility;
+    collaborative?: boolean;
+  }) => jsonRequest<{ playlist: Playlist }>('/api/playlists', 'POST', input),
+  update: (
+    id: string,
+    input: {
+      name?: string;
+      description?: string | null;
+      visibility?: PlaylistVisibility;
+      collaborative?: boolean;
+    },
+  ) => jsonRequest<{ playlist: Playlist }>(`/api/playlists/${encodeURIComponent(id)}`, 'PATCH', input),
+  remove: (id: string) =>
+    jsonRequest<{ ok: true }>(`/api/playlists/${encodeURIComponent(id)}`, 'DELETE'),
+  addTracks: (id: string, trackIds: string[]) =>
+    jsonRequest<{ added: number; skipped: number; playlist: Playlist }>(
+      `/api/playlists/${encodeURIComponent(id)}/tracks`,
+      'POST',
+      { trackIds },
+    ),
+  removeTrack: (id: string, trackId: string) =>
+    jsonRequest<{ ok: true }>(
+      `/api/playlists/${encodeURIComponent(id)}/tracks/${encodeURIComponent(trackId)}`,
+      'DELETE',
+    ),
+  moveTrack: (id: string, trackId: string, to: number) =>
+    jsonRequest<{ ok: true }>(
+      `/api/playlists/${encodeURIComponent(id)}/tracks/${encodeURIComponent(trackId)}/move`,
+      'POST',
+      { to },
+    ),
 };
 
 /** What the player reports when a track has been listened to. */

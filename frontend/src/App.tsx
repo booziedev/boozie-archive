@@ -17,6 +17,8 @@ import { ArtistsPage } from './pages/ArtistsPage';
 import { FavouritesPage } from './pages/FavouritesPage';
 import { HomePage } from './pages/HomePage';
 import { NotFoundPage } from './pages/NotFoundPage';
+import { PlaylistPage } from './pages/PlaylistPage';
+import { PlaylistsPage } from './pages/PlaylistsPage';
 import { SearchPage } from './pages/SearchPage';
 import { RecapPage } from './pages/RecapPage';
 import { SettingsPage } from './pages/SettingsPage';
@@ -122,6 +124,8 @@ export function App() {
           <Route path="/albums/:id" element={<AlbumPage />} />
           <Route path="/tracks" element={<TracksPage />} />
           <Route path="/search" element={<SearchPage />} />
+          <Route path="/playlists" element={<PlaylistsPage />} />
+          <Route path="/playlists/:id" element={<PlaylistPage />} />
           <Route path="/favourites" element={<FavouritesPage />} />
           <Route path="/recap" element={<RecapPage />} />
           {/* Kept so US spelling links don't 404. */}

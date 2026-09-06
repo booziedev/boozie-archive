@@ -5,6 +5,7 @@ import {
   ArrowLeft,
   Disc3,
   Image as ImageIcon,
+  ListMusic,
   Loader2,
   MessageSquare,
   Music2,
@@ -64,6 +65,31 @@ function AttachmentView({ attachment }: { attachment: Attachment }) {
         referrerPolicy="no-referrer"
         className="mt-1 h-12 w-12 object-contain"
       />
+    );
+  }
+
+  // A playlist is one of ours rather than a library item: it has no cover art
+  // of its own to fetch, so it gets an icon tile instead.
+  if (attachment.kind === 'playlist') {
+    return (
+      <Link
+        to={`/playlists/${attachment.id}`}
+        className="mt-1.5 flex items-center gap-3 rounded-xl border border-white/10 bg-black/25 p-2 transition-colors hover:border-white/20 hover:bg-black/40"
+      >
+        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-white/5 text-accent-300">
+          <ListMusic size={20} />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-accent-300">
+            <ListMusic size={10} />
+            playlist
+          </span>
+          <span className="block truncate text-sm font-medium text-zinc-100">{attachment.name}</span>
+          {attachment.subtitle && (
+            <span className="block truncate text-xs text-zinc-500">{attachment.subtitle}</span>
+          )}
+        </span>
+      </Link>
     );
   }
 

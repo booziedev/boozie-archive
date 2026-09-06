@@ -6,6 +6,7 @@ import {
   Home,
   LogOut,
   Lightbulb,
+  ListMusic,
   MessageSquare,
   Music2,
   Settings,
@@ -37,6 +38,7 @@ const NAV = [
   { to: '/artists', label: 'Artists', icon: Users, end: false },
   { to: '/albums', label: 'Albums', icon: Disc3, end: false },
   { to: '/tracks', label: 'Tracks', icon: Music2, end: false },
+  { to: '/playlists', label: 'Playlists', icon: ListMusic, end: false },
   { to: '/favourites', label: 'Favourites', icon: Heart, end: false },
 ] as const;
 

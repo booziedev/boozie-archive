@@ -232,7 +232,8 @@ export type Attachment =
       title?: string;
     }
   | { kind: 'emoji'; url: string; name: string; provider: string }
-  | { kind: 'album' | 'artist' | 'track'; id: string; name: string; subtitle?: string };
+  | { kind: 'album' | 'artist' | 'track'; id: string; name: string; subtitle?: string }
+  | { kind: 'playlist'; id: string; name: string; subtitle?: string };
 
 export interface Message {
   id: string;
@@ -400,4 +401,42 @@ export interface Recap {
   topTracks: TopEntry[];
   topArtists: TopEntry[];
   topAlbums: TopEntry[];
+}
+
+/** A playlist, as the API returns it. */
+export type PlaylistVisibility = 'everyone' | 'friends' | 'private';
+
+export interface Playlist {
+  id: string;
+  ownerId: string;
+  ownerUsername: string;
+  ownerDisplayName: string | null;
+  name: string;
+  description: string | null;
+  visibility: PlaylistVisibility;
+  collaborative: boolean;
+  kind: 'manual' | 'blend';
+  blendWith: string | null;
+  trackCount: number;
+  duration: number;
+  coverId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  /** What this viewer may do with it. */
+  canEdit: boolean;
+  isOwner: boolean;
+}
+
+export interface PlaylistEntry {
+  trackId: string;
+  title: string;
+  artist: string;
+  album: string | null;
+  albumId: string | null;
+  duration: number | null;
+  position: number;
+  addedBy: string | null;
+  addedAt: string;
+  /** null when the id no longer resolves — the file was renamed or removed. */
+  track: Track | null;
 }

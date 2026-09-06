@@ -48,7 +48,8 @@ export interface FriendSummary extends PublicProfile {
 export type Attachment =
   | { kind: 'gif'; url: string; previewUrl: string; width?: number; height?: number; provider: string; title?: string }
   | { kind: 'emoji'; url: string; name: string; provider: string }
-  | { kind: 'album' | 'artist' | 'track'; id: string; name: string; subtitle?: string };
+  | { kind: 'album' | 'artist' | 'track'; id: string; name: string; subtitle?: string }
+  | { kind: 'playlist'; id: string; name: string; subtitle?: string };
 
 export interface Message {
   id: string;
@@ -474,6 +475,8 @@ function previewOf(body: string | null, attachment: Attachment | null): string |
       return `Shared an artist · ${attachment.name}`;
     case 'track':
       return `Shared a track · ${attachment.name}`;
+    case 'playlist':
+      return `Shared a playlist · ${attachment.name}`;
     default:
       return null;
   }
@@ -553,6 +556,22 @@ export function validateAttachment(raw: unknown): Attachment | null {
     }
     return {
       kind,
+      id,
+      name: String(value.name ?? '').slice(0, 200),
+      subtitle: value.subtitle ? String(value.subtitle).slice(0, 200) : undefined,
+    };
+  }
+
+  // Playlists are rows in our own database, so their ids are uuids rather than
+  // the library's path-derived ones. Whether the recipient may open it is
+  // decided when they follow the link, not here.
+  if (kind === 'playlist') {
+    const id = String(value.id ?? '');
+    if (!/^[0-9a-f-]{36}$/i.test(id)) {
+      throw new AuthError('Invalid shared item.', 400, 'invalid_attachment');
+    }
+    return {
+      kind: 'playlist',
       id,
       name: String(value.name ?? '').slice(0, 200),
       subtitle: value.subtitle ? String(value.subtitle).slice(0, 200) : undefined,
