@@ -303,4 +303,40 @@ export const migrations: Migration[] = [
       ALTER TABLE users DROP COLUMN IF EXISTS allow_party_invites;
     `,
   },
+  {
+    id: '007_play_history',
+    sql: /* sql */ `
+      /*
+       * One row per play, the way a scrobble works.
+       *
+       * The track labels are denormalised on purpose. The library index is
+       * rebuilt from the files on every rescan, and ids are derived from the
+       * path — so a re-tag, a rename or a reorganise would leave a history of
+       * rows pointing at nothing. Keeping what was playing at the time means
+       * the log stays readable whatever happens to the files afterwards.
+       */
+      CREATE TABLE IF NOT EXISTS play_history (
+        id         bigserial PRIMARY KEY,
+        user_id    uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        track_id   text NOT NULL,
+        title      text NOT NULL,
+        artist     text NOT NULL,
+        album      text,
+        album_id   text,
+        -- How far they actually got, and whether the track ran to its end.
+        ms_played  integer NOT NULL DEFAULT 0,
+        completed  boolean NOT NULL DEFAULT false,
+        played_at  timestamptz NOT NULL DEFAULT now()
+      );
+
+      -- "What did I play recently" and the recap both read this way.
+      CREATE INDEX IF NOT EXISTS play_history_user_time_idx
+        ON play_history (user_id, played_at DESC);
+      -- Play counts per track, and "how often have I played this".
+      CREATE INDEX IF NOT EXISTS play_history_user_track_idx
+        ON play_history (user_id, track_id);
+      CREATE INDEX IF NOT EXISTS play_history_user_artist_idx
+        ON play_history (user_id, artist);
+    `,
+  },
 ];

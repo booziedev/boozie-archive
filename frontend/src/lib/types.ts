@@ -309,3 +309,46 @@ export interface PartyState {
   live: boolean;
   isHost: boolean;
 }
+
+// --- listening history ------------------------------------------------------
+
+/** Windows the history queries know how to build. */
+export type HistoryRange = 'week' | 'month' | 'year' | 'all';
+
+export interface PlayRecord {
+  id: string;
+  trackId: string;
+  title: string;
+  artist: string;
+  album: string | null;
+  albumId: string | null;
+  msPlayed: number;
+  completed: boolean;
+  playedAt: string;
+}
+
+/** A row in a "most played" chart — a track, an artist or an album. */
+export interface TopEntry {
+  key: string;
+  name: string;
+  subtitle: string | null;
+  albumId: string | null;
+  plays: number;
+  msPlayed: number;
+}
+
+export interface Recap {
+  range: HistoryRange;
+  from: string | null;
+  plays: number;
+  tracks: number;
+  artists: number;
+  albums: number;
+  msPlayed: number;
+  /** Hour of day, 0-23, with the most plays. Null with no history. */
+  peakHour: number | null;
+  firstPlayAt: string | null;
+  topTracks: TopEntry[];
+  topArtists: TopEntry[];
+  topAlbums: TopEntry[];
+}

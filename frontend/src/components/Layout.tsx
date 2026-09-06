@@ -9,6 +9,7 @@ import {
   MessageSquare,
   Music2,
   Settings,
+  BarChart3,
   Shield,
   Wrench,
   UserRound,
@@ -37,6 +38,11 @@ const NAV = [
   { to: '/albums', label: 'Albums', icon: Disc3, end: false },
   { to: '/tracks', label: 'Tracks', icon: Music2, end: false },
   { to: '/favourites', label: 'Favourites', icon: Heart, end: false },
+] as const;
+
+/** Only meaningful with an account, since the play log belongs to one. */
+const ACCOUNT_NAV = [
+  { to: '/recap', label: 'Your listening', icon: BarChart3 },
 ] as const;
 
 /** Social entries carry unread counts, so they live in their own group. */
@@ -197,6 +203,31 @@ export function Layout() {
           {user && (
             <>
               <hr className="!my-3 border-white/5" />
+              {ACCOUNT_NAV.map(({ to, label, icon: Icon }) => (
+                <NavLink
+                  key={to}
+                  to={to}
+                  className={({ isActive }) =>
+                    `group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200 ease-vault ${
+                      isActive
+                        ? 'bg-white/[0.06] text-white'
+                        : 'text-zinc-500 hover:bg-white/[0.03] hover:text-zinc-200'
+                    }`
+                  }
+                >
+                  {({ isActive }) => (
+                    <>
+                      <span
+                        className={`absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-r-full bg-accent-500 transition-opacity duration-200 ${
+                          isActive ? 'opacity-100' : 'opacity-0'
+                        }`}
+                      />
+                      <Icon size={18} strokeWidth={2} />
+                      {label}
+                    </>
+                  )}
+                </NavLink>
+              ))}
               {SOCIAL_NAV.map(({ to, label, icon: Icon, badge }) => (
                 <NavLink
                   key={to}

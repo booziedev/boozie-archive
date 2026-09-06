@@ -18,6 +18,7 @@ import { FavouritesPage } from './pages/FavouritesPage';
 import { HomePage } from './pages/HomePage';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { SearchPage } from './pages/SearchPage';
+import { RecapPage } from './pages/RecapPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { SuggestionsPage } from './pages/SuggestionsPage';
 import { TracksPage } from './pages/TracksPage';
@@ -122,6 +123,7 @@ export function App() {
           <Route path="/tracks" element={<TracksPage />} />
           <Route path="/search" element={<SearchPage />} />
           <Route path="/favourites" element={<FavouritesPage />} />
+          <Route path="/recap" element={<RecapPage />} />
           {/* Kept so US spelling links don't 404. */}
           <Route path="/favorites" element={<FavouritesPage />} />
           <Route path="/friends" element={<FriendsPage />} />

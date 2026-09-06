@@ -15,6 +15,7 @@ import { apiRoutes } from './routes/api.js';
 import { adminRoutes } from './routes/admin.js';
 import { authRoutes, inviteThrottle, loginThrottle } from './routes/auth.js';
 import { describeFrontendBuild } from './lib/build.js';
+import { historyRoutes } from './routes/history.js';
 import { mediaRoutes } from './routes/media.js';
 import { presenceRoutes } from './routes/presence.js';
 import { socialRoutes } from './routes/social.js';
@@ -172,6 +173,7 @@ async function main() {
     '/api/social/',
     '/api/presence',
     '/api/parties',
+    '/api/history',
     '/api/suggestions',
     '/api/stickers/',
   ];
@@ -278,6 +280,7 @@ async function main() {
     // Friends, DMs and the GIF/emoji picker only exist when there are accounts.
     await app.register(socialRoutes, { prefix: '/api' });
     await app.register(presenceRoutes, { prefix: '/api' });
+    await app.register(historyRoutes, { prefix: '/api' });
     await app.register(stickerRoutes, { prefix: '/api' });
     await app.register(suggestionRoutes, { prefix: '/api' });
   }

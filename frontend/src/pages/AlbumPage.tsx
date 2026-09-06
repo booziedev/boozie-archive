@@ -5,6 +5,10 @@ import { CoverImage } from '../components/CoverImage';
 import { FavoriteButton } from '../components/FavoriteButton';
 import { ShareButton } from '../components/ShareDialog';
 import { TrackRow } from '../components/TrackRow';
+import { useQuery } from '@tanstack/react-query';
+
+import { history } from '../lib/api';
+import { useAuth } from '../context/AuthContext';
 import { ErrorState, TrackListSkeleton } from '../components/states';
 import { mediaUrl } from '../lib/api';
 import { useAlbum } from '../hooks/useLibrary';
@@ -14,9 +18,25 @@ import type { Track } from '../lib/types';
 
 /** Album detail: hero header + full track list grouped by disc. */
 export function AlbumPage() {
+  const { user } = useAuth();
   const { id } = useParams<{ id: string }>();
   const query = useAlbum(id);
   const { playTracks, enqueue, toggleShuffle, shuffle } = usePlayer();
+
+  /*
+   * Play counts for the whole album in one request.
+   *
+   * Derived above the early returns below, because hooks cannot be conditional
+   * — the ids are empty until the album loads, and the query simply waits.
+   */
+  const trackIds = query.data?.tracks.map((track) => track.id) ?? [];
+  const countsQuery = useQuery({
+    queryKey: ['history', 'counts', id],
+    queryFn: () => history.counts(trackIds),
+    enabled: Boolean(user) && trackIds.length > 0,
+    staleTime: 60_000,
+  });
+  const playCounts = countsQuery.data?.counts ?? {};
 
   if (query.isError) {
     return <ErrorState error={query.error} onRetry={() => query.refetch()} title="Album unavailable" />;
@@ -156,6 +176,7 @@ export function AlbumPage() {
                     tracks={tracks}
                     index={tracks.indexOf(track)}
                     variant="album"
+                    playCount={playCounts[track.id]}
                   />
                 ))}
               </div>

@@ -14,19 +14,23 @@ import type {
   GifResult,
   Invite,
   LibraryStats,
+  HistoryRange,
   Message,
   NowPlaying,
   Page,
   PartyState,
   PendingProfile,
+  PlayRecord,
   PrivacySettings,
   PublicProfile,
+  Recap,
   SearchResults,
   SiteSettings,
   SortKey,
   StickerProviders,
   Suggestion,
   ThreadSummary,
+  TopEntry,
   Track,
 } from './types';
 
@@ -326,6 +330,35 @@ export interface NowPlayingInput {
   duration: number | null;
   position: number;
   isPlaying: boolean;
+}
+
+/** The listening log, and everything read back out of it. */
+export const history = {
+  /** Reports a play that lasted long enough to count. */
+  record: (play: PlayInput) => jsonRequest<{ play: PlayRecord }>('/api/history', 'POST', { play }),
+  recent: (limit = 20) => request<{ plays: PlayRecord[] }>(`/api/history/recent?limit=${limit}`),
+  counts: (trackIds: string[]) =>
+    request<{ counts: Record<string, number> }>(
+      `/api/history/counts?ids=${encodeURIComponent(trackIds.join(','))}`,
+    ),
+  top: (kind: 'track' | 'artist' | 'album', range: HistoryRange = 'month', limit = 20) =>
+    request<{ entries: TopEntry[] }>(
+      `/api/history/top?kind=${kind}&range=${range}&limit=${limit}`,
+    ),
+  recap: (range: HistoryRange = 'year') =>
+    request<{ recap: Recap }>(`/api/history/recap?range=${range}`),
+  clear: () => jsonRequest<{ deleted: number }>('/api/history', 'DELETE'),
+};
+
+/** What the player reports when a track has been listened to. */
+export interface PlayInput {
+  trackId: string;
+  title: string;
+  artist: string;
+  album: string | null;
+  albumId: string | null;
+  msPlayed: number;
+  completed: boolean;
 }
 
 export const stickers = {

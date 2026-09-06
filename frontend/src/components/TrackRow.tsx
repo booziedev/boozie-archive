@@ -16,6 +16,8 @@ interface TrackRowProps {
   index: number;
   /** Album view shows track numbers; search results show cover thumbnails. */
   variant?: 'album' | 'flat';
+  /** How many times this account has played it, when the list knows. */
+  playCount?: number;
 }
 
 /** Animated bars shown in place of the track number while it is playing. */
@@ -33,7 +35,7 @@ function NowPlayingBars() {
   );
 }
 
-export function TrackRow({ track, tracks, index, variant = 'flat' }: TrackRowProps) {
+export function TrackRow({ track, tracks, index, variant = 'flat', playCount }: TrackRowProps) {
   const { current, isPlaying, playTracks, toggle, enqueue } = usePlayer();
   const isCurrent = current?.id === track.id;
   const hiRes = isHiRes(track);
@@ -180,6 +182,17 @@ export function TrackRow({ track, tracks, index, variant = 'flat' }: TrackRowPro
             />
           </span>
         </div>
+
+        {/* Play count, where the list has fetched one. Hidden on the narrowest
+            screens, where the row has no width to spare. */}
+        {playCount !== undefined && playCount > 0 && (
+          <span
+            className="hidden w-10 shrink-0 text-right text-xs tabular-nums text-zinc-600 sm:block"
+            title={`Played ${playCount} ${playCount === 1 ? 'time' : 'times'}`}
+          >
+            {playCount}×
+          </span>
+        )}
 
         <span className="w-11 shrink-0 text-right text-xs tabular-nums text-zinc-500">
           {formatDuration(track.duration)}

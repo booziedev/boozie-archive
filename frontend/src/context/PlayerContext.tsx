@@ -9,8 +9,9 @@ import {
 } from 'react';
 import type { ReactNode } from 'react';
 
-import { mediaUrl } from '../lib/api';
+import { history, mediaUrl } from '../lib/api';
 import { mediaCrossOrigin } from '../lib/config';
+import { useAuth } from './AuthContext';
 import type { Track } from '../lib/types';
 
 /**
@@ -29,6 +30,22 @@ import type { Track } from '../lib/types';
  * shuffle toggle or an enqueue is one atomic update rather than three setters
  * racing each other.
  */
+
+/**
+ * When a play counts as a listen, following the scrobbling convention: four
+ * minutes, or half the track, whichever comes first.
+ */
+const SCROBBLE_MS = 4 * 60 * 1000;
+const SCROBBLE_FRACTION = 0.5;
+/**
+ * The largest timeupdate gap treated as continuous playback.
+ *
+ * Listening time is accumulated from the deltas between timeupdate events, not
+ * read off the playhead: seeking to the last thirty seconds of a track is not
+ * listening to it. Real events arrive about four times a second, so anything
+ * this far apart is a seek and is not counted.
+ */
+const CONTINUOUS_GAP_MS = 2_000;
 
 const VOLUME_KEY = 'boozie.player.volume';
 const SESSION_KEY = 'boozie.player.session.v1';
@@ -141,6 +158,17 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   /** Position to restore into the element once metadata for it has loaded. */
   const resumeTimeRef = useRef(0);
 
+  const { user } = useAuth();
+
+  /**
+   * Scrobble bookkeeping for the track currently loaded. All three reset when
+   * the element is pointed at something new.
+   */
+  const currentRef = useRef<Track | null>(null);
+  const listenedMsRef = useRef(0);
+  const lastPositionRef = useRef(0);
+  const loggedRef = useRef(false);
+
   const [playback, setPlayback] = useState<Playback>(EMPTY_PLAYBACK);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -159,6 +187,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     const index = order[position];
     return index === undefined ? null : (queue[index] ?? null);
   }, [order, position, queue]);
+
+  currentRef.current = current;
 
   // One audio element for the whole app lifetime.
   if (audioRef.current === null && typeof window !== 'undefined') {
@@ -214,6 +244,41 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     }
   }, [queue, order, position, shuffle, repeat]);
 
+  /**
+   * Reports the current track as listened to, at most once per playthrough.
+   *
+   * Called from the timeupdate handler once enough continuous playback has
+   * accumulated, and again on `ended` for anything short enough that the
+   * threshold and the end of the track arrive together.
+   */
+  const resetScrobble = useCallback(() => {
+    listenedMsRef.current = 0;
+    lastPositionRef.current = 0;
+    loggedRef.current = false;
+  }, []);
+
+  const logPlay = useCallback(
+    (track: Track | null, completed: boolean) => {
+      if (!track || !user || loggedRef.current) return;
+      loggedRef.current = true;
+      void history
+        .record({
+          trackId: track.id,
+          title: track.title,
+          artist: track.artist,
+          album: track.album || null,
+          albumId: track.albumId || null,
+          msPlayed: Math.round(listenedMsRef.current),
+          completed,
+        })
+        .catch(() => {
+          // A lost scrobble is not worth interrupting playback for, and the
+          // next track will report normally.
+        });
+    },
+    [user],
+  );
+
   const startElement = useCallback(() => {
     const audio = audioRef.current;
     if (!audio) return;
@@ -241,12 +306,15 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       setCurrentTime(0);
       setDuration(0);
       setLoadedTrackId(null);
+      resetScrobble();
       return;
     }
 
     const url = mediaUrl.stream(current.id);
     if (audio.src === url) {
       setLoadedTrackId(current.id);
+      // Re-selecting the same track is a new playthrough, and counts again.
+      resetScrobble();
       if (autoplayRef.current) startElement();
       return;
     }
@@ -258,8 +326,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     audio.src = url;
     audio.load();
     setLoadedTrackId(current.id);
+    resetScrobble();
     if (autoplayRef.current) startElement();
-  }, [current, startElement]);
+  }, [current, resetScrobble, startElement]);
 
   // --- transport ---------------------------------------------------------
 
@@ -297,6 +366,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, [goTo, position]);
 
   const handleEnded = useCallback(() => {
+    // A track short enough that the threshold and the end arrive together
+    // still counts; logPlay is a no-op if timeupdate already reported it.
+    logPlay(currentRef.current, true);
     const audio = audioRef.current;
     if (repeat === 'one' && audio) {
       audio.currentTime = 0;
@@ -304,7 +376,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       return;
     }
     next();
-  }, [next, repeat]);
+  }, [logPlay, next, repeat]);
 
   // --- audio element events ----------------------------------------------
   useEffect(() => {
@@ -318,7 +390,28 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       setIsLoading(false);
       setError(null);
     };
-    const onTimeUpdate = () => setCurrentTime(audio.currentTime);
+    const onTimeUpdate = () => {
+      setCurrentTime(audio.currentTime);
+
+      /*
+       * Accumulate real listening time, not playhead position.
+       *
+       * timeupdate fires a few times a second during playback, so a small
+       * forward delta is genuine listening. Anything larger is a seek, and
+       * skipping to the last thirty seconds of a track should not count as
+       * having heard it.
+       */
+      const delta = (audio.currentTime - lastPositionRef.current) * 1000;
+      lastPositionRef.current = audio.currentTime;
+      if (delta > 0 && delta < CONTINUOUS_GAP_MS) listenedMsRef.current += delta;
+
+      if (loggedRef.current) return;
+      const duration = Number.isFinite(audio.duration) ? audio.duration : 0;
+      const threshold = duration > 0
+        ? Math.min(SCROBBLE_MS, duration * 1000 * SCROBBLE_FRACTION)
+        : SCROBBLE_MS;
+      if (listenedMsRef.current >= threshold) logPlay(currentRef.current, false);
+    };
     const onLoadedMetadata = () => {
       setIsLoading(false);
       if (Number.isFinite(audio.duration) && audio.duration > 0) setDuration(audio.duration);
@@ -355,7 +448,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       audio.removeEventListener('error', onError);
       audio.removeEventListener('ended', handleEnded);
     };
-  }, [handleEnded]);
+  }, [handleEnded, logPlay]);
 
   useEffect(() => {
     const audio = audioRef.current;

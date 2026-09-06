@@ -3,6 +3,7 @@ import { ArrowRight, Disc3, Music2, Sparkles, Users } from 'lucide-react';
 
 import { AlbumCard } from '../components/AlbumCard';
 import { ArtistCard } from '../components/ArtistCard';
+import { RecentlyPlayed } from '../components/RecentlyPlayed';
 import { SectionHeader } from '../components/PageHeader';
 import { CardGridSkeleton, ErrorState, ScanningState } from '../components/states';
 import { useAlbums, useArtists, useRecentAlbums, useStats } from '../hooks/useLibrary';
@@ -87,6 +88,8 @@ export function HomePage() {
         <ScanningState />
       ) : (
         <>
+          <RecentlyPlayed />
+
           <section>
             <SectionHeader
               title="Recently added"
