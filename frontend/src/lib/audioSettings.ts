@@ -24,6 +24,12 @@ export interface AudioSettings {
   replayGainPreampDb: number;
   /** Seconds of overlap between tracks; 0 is a hard cut. */
   crossfadeSeconds: number;
+  /**
+   * Start the next track the instant this one ends, from a deck that already
+   * has it buffered. Costs one track of preloading; worth it on anything mixed
+   * or recorded live, where the silence between tracks is the artefact.
+   */
+  gaplessOn: boolean;
   playbackRate: number;
 }
 
@@ -37,6 +43,7 @@ export const DEFAULT_AUDIO_SETTINGS: AudioSettings = {
   replayGain: 'off',
   replayGainPreampDb: 0,
   crossfadeSeconds: 0,
+  gaplessOn: true,
   playbackRate: 1,
 };
 
@@ -75,6 +82,7 @@ function sanitise(raw: Partial<AudioSettings> | null): AudioSettings {
       raw.replayGain === 'track' || raw.replayGain === 'album' ? raw.replayGain : 'off',
     replayGainPreampDb: number(raw.replayGainPreampDb, 0, -12, 12),
     crossfadeSeconds: number(raw.crossfadeSeconds, 0, 0, 12),
+    gaplessOn: raw.gaplessOn !== false,
     playbackRate: number(raw.playbackRate, 1, 0.5, 2),
   };
 }

@@ -1,4 +1,4 @@
-import { AudioLines, RotateCcw, SlidersVertical } from 'lucide-react';
+import { AudioLines, RotateCcw, SlidersVertical, Waves } from 'lucide-react';
 
 import { EQ_BANDS, EQ_MAX_DB } from '../lib/audioGraph';
 import { EQ_PRESETS, FLAT, type ReplayGainMode } from '../lib/audioSettings';
@@ -223,6 +223,51 @@ export function AudioSettingsSection() {
           </button>
         )}
       </label>
+
+      {/* ------------------------- crossfade and gapless ------------------ */}
+      <div className="border-t border-white/5 pt-5">
+        <label className="block">
+          <span className="mb-1.5 flex items-center justify-between">
+            <span className="flex items-center gap-1.5 text-sm font-medium text-zinc-200">
+              <Waves size={13} className="text-zinc-500" />
+              Crossfade
+            </span>
+            <span className="text-xs tabular-nums text-zinc-400">
+              {audio.crossfadeSeconds === 0 ? 'Off' : `${audio.crossfadeSeconds}s`}
+            </span>
+          </span>
+          <input
+            type="range"
+            min={0}
+            max={12}
+            step={1}
+            value={audio.crossfadeSeconds}
+            onChange={(event) => setAudio({ crossfadeSeconds: Number(event.target.value) })}
+            aria-label="Crossfade"
+            className="vault-range"
+            style={{ ['--range-progress' as string]: `${(audio.crossfadeSeconds / 12) * 100}%` }}
+          />
+          <span className="mt-1.5 block text-xs leading-relaxed text-zinc-500">
+            How long one track overlaps the next. Skipping by hand still cuts straight over.
+          </span>
+        </label>
+
+        <label className="mt-4 flex cursor-pointer items-start gap-3">
+          <input
+            type="checkbox"
+            checked={audio.gaplessOn}
+            onChange={(event) => setAudio({ gaplessOn: event.target.checked })}
+            className="mt-0.5 h-4 w-4 shrink-0 accent-accent-500"
+          />
+          <span>
+            <span className="block text-sm text-zinc-200">Gapless playback</span>
+            <span className="block text-xs leading-relaxed text-zinc-500">
+              Loads the next track while this one plays, so a mix or a live record runs straight
+              through. Uses a little more data.
+            </span>
+          </span>
+        </label>
+      </div>
 
       {/* --------------------------- the master switch -------------------- */}
       <label className="flex cursor-pointer items-start gap-3 border-t border-white/5 pt-5">
