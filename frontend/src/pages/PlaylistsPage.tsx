@@ -71,8 +71,10 @@ export function PlaylistsPage() {
   });
 
   const all = query.data?.playlists ?? [];
-  const mine = all.filter((playlist) => playlist.isOwner);
-  const shared = all.filter((playlist) => !playlist.isOwner);
+  // A blend belongs to both people in it, so it sits with yours whichever
+  // side of the pair happens to own the row.
+  const mine = all.filter((playlist) => playlist.isOwner || playlist.kind === 'blend');
+  const shared = all.filter((playlist) => !playlist.isOwner && playlist.kind !== 'blend');
 
   return (
     <div>

@@ -6,6 +6,7 @@ import {
   deletePlaylist,
   getPlaylist,
   listEntries,
+  openBlend,
   listPlaylists,
   moveTrack,
   removeTrack,
@@ -23,6 +24,16 @@ export const playlistRoutes: FastifyPluginAsync = async (app: FastifyInstance) =
   app.get('/playlists', async (request) => ({
     playlists: await listPlaylists(request.user!.id),
   }));
+
+  /**
+   * The blend this account shares with one friend, built on first ask and
+   * refreshed when it has gone stale. `?refresh=1` rebuilds it now.
+   */
+  app.post('/playlists/blend/:friendId', async (request) => {
+    const { friendId } = request.params as { friendId: string };
+    const { refresh } = request.query as { refresh?: string };
+    return openBlend(request.user!.id, friendId, refresh === '1');
+  });
 
   app.post('/playlists', async (request, reply) => {
     const body = (request.body ?? {}) as Record<string, unknown>;

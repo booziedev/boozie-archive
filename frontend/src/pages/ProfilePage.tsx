@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  Blend,
   Camera,
   Check,
   Loader2,
@@ -15,7 +16,7 @@ import { Avatar } from '../components/Avatar';
 import { ListeningNow } from '../components/ListeningNow';
 import { PageHeader } from '../components/PageHeader';
 import { ErrorState } from '../components/states';
-import { social } from '../lib/api';
+import { playlists, social } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { usePresence } from '../context/PresenceContext';
 import { formatDate } from '../lib/format';
@@ -326,6 +327,7 @@ function OtherProfile({ profile }: { profile: PublicProfile }) {
                 Message
               </Link>
               <ListenAlongButton profile={profile} />
+              <BlendButton profile={profile} />
               <button type="button" onClick={() => remove.mutate()} className="btn-ghost">
                 <UserMinus size={15} />
                 Remove friend
@@ -361,6 +363,41 @@ function OtherProfile({ profile }: { profile: PublicProfile }) {
         {error && <p className="relative mt-3 text-xs text-red-400">{error}</p>}
       </section>
     </div>
+  );
+}
+
+/**
+ * Opens the blend this account shares with the person whose profile this is.
+ *
+ * The playlist is built on the first press and reused afterwards, so the
+ * button is "open ours" rather than "make a new one" — pressing it twice does
+ * not leave two lists behind.
+ */
+function BlendButton({ profile }: { profile: PublicProfile }) {
+  const navigate = useNavigate();
+  const [failure, setFailure] = useState<string | null>(null);
+
+  const open = useMutation({
+    mutationFn: () => playlists.blend(profile.id),
+    onSuccess: ({ playlist }) => navigate(`/playlists/${playlist.id}`),
+    onError: (error) =>
+      setFailure(error instanceof Error ? error.message : 'Could not build a blend.'),
+  });
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => open.mutate()}
+        disabled={open.isPending}
+        className="btn-ghost"
+        title="A playlist built from what you have both been playing"
+      >
+        {open.isPending ? <Loader2 size={15} className="animate-spin" /> : <Blend size={15} />}
+        Blend
+      </button>
+      {failure && <span className="text-xs text-red-400">{failure}</span>}
+    </>
   );
 }
 

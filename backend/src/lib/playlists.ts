@@ -419,3 +419,211 @@ async function writeOrder(playlistId: string, order: string[]) {
 async function touch(playlistId: string) {
   await pool.query('UPDATE playlists SET updated_at = now() WHERE id = $1', [playlistId]);
 }
+
+// ------------------------------------------------------------------- blend
+
+/**
+ * Blend: one generated playlist per pair of friends.
+ *
+ * It is built from what both people actually played, so it needs no taste
+ * model and no catalogue beyond this one — the archive is small enough that
+ * two friends' listening genuinely overlaps.
+ *
+ * The list is rebuilt in place rather than recreated, so its URL survives a
+ * refresh and a share sent last week still opens the current version.
+ */
+
+/** How many tracks a blend holds. Long enough for an evening. */
+const BLEND_SIZE = 40;
+/** Refreshed at most this often, unless someone asks for it. */
+const BLEND_MAX_AGE_MS = 6 * 60 * 60 * 1000;
+
+interface Candidate {
+  trackId: string;
+  title: string;
+  artist: string;
+  album: string | null;
+  albumId: string | null;
+  plays: number;
+  /** Whether the other person has played it too. */
+  shared: boolean;
+}
+
+/** Somebody's most-played tracks, newest listening weighted by simply being recent. */
+async function topTracks(userId: string, limit: number) {
+  const { rows } = await pool.query<{
+    track_id: string;
+    title: string;
+    artist: string;
+    album: string | null;
+    album_id: string | null;
+    plays: string;
+  }>(
+    `SELECT track_id, max(title) AS title, max(artist) AS artist,
+            max(album) AS album, max(album_id) AS album_id, count(*)::text AS plays
+       FROM play_history
+      WHERE user_id = $1 AND played_at > now() - interval '180 days'
+      GROUP BY track_id
+      ORDER BY count(*) DESC, max(played_at) DESC
+      LIMIT $2`,
+    [userId, limit],
+  );
+  return rows.map((row) => ({
+    trackId: row.track_id,
+    title: row.title,
+    artist: row.artist,
+    album: row.album,
+    albumId: row.album_id,
+    plays: Number.parseInt(row.plays, 10),
+  }));
+}
+
+/**
+ * Picks the blend's tracks.
+ *
+ * Anything both people play goes in first — that is the part of a blend worth
+ * having. The rest alternates between the two so neither taste dominates, and
+ * only tracks the library can still resolve are kept.
+ */
+async function blendTracks(aId: string, bId: string): Promise<Candidate[]> {
+  const [a, b] = await Promise.all([
+    topTracks(aId, BLEND_SIZE * 2),
+    topTracks(bId, BLEND_SIZE * 2),
+  ]);
+
+  const bIds = new Set(b.map((track) => track.trackId));
+  const aIds = new Set(a.map((track) => track.trackId));
+
+  const both = a
+    .filter((track) => bIds.has(track.trackId))
+    .map((track) => ({ ...track, shared: true }));
+
+  const onlyA = a.filter((track) => !bIds.has(track.trackId)).map((t) => ({ ...t, shared: false }));
+  const onlyB = b.filter((track) => !aIds.has(track.trackId)).map((t) => ({ ...t, shared: false }));
+
+  const picked: Candidate[] = [...both];
+  for (let i = 0; picked.length < BLEND_SIZE && (i < onlyA.length || i < onlyB.length); i += 1) {
+    if (onlyA[i]) picked.push(onlyA[i]!);
+    if (picked.length < BLEND_SIZE && onlyB[i]) picked.push(onlyB[i]!);
+  }
+
+  return picked.filter((track) => library.getTrack(track.trackId)).slice(0, BLEND_SIZE);
+}
+
+/** Replaces a blend's contents in one transaction, so it is never half-built. */
+async function fillBlend(playlistId: string, tracks: Candidate[]) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('DELETE FROM playlist_tracks WHERE playlist_id = $1', [playlistId]);
+    for (const [index, track] of tracks.entries()) {
+      const live = library.getTrack(track.trackId);
+      await client.query(
+        `INSERT INTO playlist_tracks
+           (playlist_id, track_id, title, artist, album, album_id, duration, position)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [
+          playlistId,
+          track.trackId,
+          live?.title ?? track.title,
+          live?.artist ?? track.artist,
+          live?.album ?? track.album,
+          live?.albumId ?? track.albumId,
+          live?.duration ?? null,
+          index,
+        ],
+      );
+    }
+    await client.query('UPDATE playlists SET updated_at = now() WHERE id = $1', [playlistId]);
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Opens the blend two friends share, building or refreshing it as needed.
+ *
+ * Either of them may ask for it and both get the same playlist — the unique
+ * index on the ordered pair is what guarantees that, rather than a check that
+ * two simultaneous requests could both pass.
+ */
+export async function openBlend(viewerId: string, otherId: string, force = false) {
+  if (viewerId === otherId) {
+    throw new AuthError('A blend needs two people.', 400, 'invalid_blend');
+  }
+  // Checked before it reaches a uuid column, so a malformed id is a 404 rather
+  // than a database error.
+  if (!/^[0-9a-f-]{36}$/i.test(otherId)) {
+    throw new AuthError('No such account.', 404, 'not_found');
+  }
+  if ((await friendStatusBetween(viewerId, otherId)) !== 'friends') {
+    throw new AuthError('You can only blend with a friend.', 403, 'not_friends');
+  }
+
+  const { rows: names } = await pool.query<{ id: string; username: string; display_name: string | null }>(
+    'SELECT id, username, display_name FROM users WHERE id = ANY($1::uuid[])',
+    [[viewerId, otherId]],
+  );
+  const nameOf = (id: string) => {
+    const row = names.find((entry) => entry.id === id);
+    return row ? row.display_name || row.username : 'Someone';
+  };
+
+  // The pair is ordered so both sides land on the same row.
+  const [low, high] = viewerId < otherId ? [viewerId, otherId] : [otherId, viewerId];
+
+  const { rows: found } = await pool.query<{ id: string; updated_at: Date }>(
+    `SELECT id, updated_at FROM playlists
+      WHERE kind = 'blend'
+        AND least(owner_id, blend_with) = $1
+        AND greatest(owner_id, blend_with) = $2`,
+    [low, high],
+  );
+
+  let playlistId = found[0]?.id;
+  let fresh = false;
+
+  if (!playlistId) {
+    const { rows } = await pool.query<{ id: string }>(
+      `INSERT INTO playlists (owner_id, blend_with, name, description, visibility, kind)
+       VALUES ($1, $2, $3, $4, 'private', 'blend')
+       ON CONFLICT DO NOTHING
+       RETURNING id`,
+      [
+        low,
+        high,
+        `${nameOf(low)} + ${nameOf(high)}`,
+        'Built from what you have both been playing.',
+      ],
+    );
+    playlistId = rows[0]?.id;
+
+    // Lost the race with the other person's request: theirs is the one to use.
+    if (!playlistId) {
+      const { rows: raced } = await pool.query<{ id: string }>(
+        `SELECT id FROM playlists
+          WHERE kind = 'blend'
+            AND least(owner_id, blend_with) = $1
+            AND greatest(owner_id, blend_with) = $2`,
+        [low, high],
+      );
+      playlistId = raced[0]!.id;
+    } else {
+      fresh = true;
+    }
+  }
+
+  const age = found[0] ? Date.now() - found[0].updated_at.getTime() : Infinity;
+  if (fresh || force || age > BLEND_MAX_AGE_MS) {
+    await fillBlend(playlistId, await blendTracks(low, high));
+  }
+
+  return {
+    playlist: await getPlaylist(viewerId, playlistId),
+    entries: await listEntries(viewerId, playlistId),
+  };
+}

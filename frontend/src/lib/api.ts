@@ -386,6 +386,15 @@ export const playlists = {
   ) => jsonRequest<{ playlist: Playlist }>(`/api/playlists/${encodeURIComponent(id)}`, 'PATCH', input),
   remove: (id: string) =>
     jsonRequest<{ ok: true }>(`/api/playlists/${encodeURIComponent(id)}`, 'DELETE'),
+  /**
+   * Opens the blend shared with one friend, building it if it does not exist.
+   * `refresh` rebuilds it now instead of waiting for it to go stale.
+   */
+  blend: (friendId: string, refresh = false) =>
+    jsonRequest<{ playlist: Playlist; entries: PlaylistEntry[] }>(
+      `/api/playlists/blend/${encodeURIComponent(friendId)}${refresh ? '?refresh=1' : ''}`,
+      'POST',
+    ),
   addTracks: (id: string, trackIds: string[]) =>
     jsonRequest<{ added: number; skipped: number; playlist: Playlist }>(
       `/api/playlists/${encodeURIComponent(id)}/tracks`,

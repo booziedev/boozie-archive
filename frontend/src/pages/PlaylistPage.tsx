@@ -7,6 +7,7 @@ import {
   ListMusic,
   Loader2,
   Play,
+  RefreshCw,
   Shuffle,
   Trash2,
   Users,
@@ -48,6 +49,11 @@ export function PlaylistPage() {
 
   const playlist = query.data?.playlist;
   const entries = query.data?.entries ?? [];
+  // A blend has two members; the one who isn't you is the one to rebuild with.
+  const otherMember =
+    playlist && playlist.kind === 'blend'
+      ? (playlist.isOwner ? playlist.blendWith : playlist.ownerId) ?? ''
+      : '';
 
   // Keep the edit form in step with the server's copy, including after a save.
   useEffect(() => {
@@ -65,6 +71,11 @@ export function PlaylistPage() {
       invalidate();
       setEditing(false);
     },
+  });
+
+  const refresh = useMutation({
+    mutationFn: () => api.blend(otherMember, true),
+    onSuccess: invalidate,
   });
 
   const remove = useMutation({
@@ -165,13 +176,19 @@ export function PlaylistPage() {
           )}
 
           <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-zinc-500">
-            <Link
-              to={`/u/${playlist.ownerUsername}`}
-              className="font-medium text-zinc-300 transition-colors hover:text-white hover:underline"
-            >
-              {playlist.ownerDisplayName || playlist.ownerUsername}
-            </Link>
-            <span aria-hidden>·</span>
+            {/* A blend's title already names both people, so an owner byline
+                would only suggest it belongs to one of them. */}
+            {playlist.kind === 'manual' && (
+              <>
+                <Link
+                  to={`/u/${playlist.ownerUsername}`}
+                  className="font-medium text-zinc-300 transition-colors hover:text-white hover:underline"
+                >
+                  {playlist.ownerDisplayName || playlist.ownerUsername}
+                </Link>
+                <span aria-hidden>·</span>
+              </>
+            )}
             <span>
               {playlist.trackCount} {playlist.trackCount === 1 ? 'track' : 'tracks'}
             </span>
@@ -218,12 +235,28 @@ export function PlaylistPage() {
                 }`,
               }}
             />
-            {playlist.isOwner && !editing && (
+            {playlist.kind === 'blend' && (
+              <button
+                type="button"
+                onClick={() => refresh.mutate()}
+                disabled={refresh.isPending}
+                className="btn-ghost"
+                title="Rebuild it from what you have both played since"
+              >
+                {refresh.isPending ? (
+                  <Loader2 size={15} className="animate-spin" />
+                ) : (
+                  <RefreshCw size={15} />
+                )}
+                Refresh
+              </button>
+            )}
+            {playlist.isOwner && playlist.kind === 'manual' && !editing && (
               <button type="button" onClick={() => setEditing(true)} className="btn-ghost">
                 Edit
               </button>
             )}
-            {playlist.isOwner && (
+            {playlist.isOwner && playlist.kind === 'manual' && (
               <button
                 type="button"
                 onClick={() => {
@@ -241,8 +274,9 @@ export function PlaylistPage() {
         </div>
       </header>
 
-      {/* Sharing controls, owner only. */}
-      {playlist.isOwner && (
+      {/* Sharing controls, owner only. A blend has none: it is private to the
+          two people in it and generated rather than curated. */}
+      {playlist.isOwner && playlist.kind === 'manual' && (
         <div className="surface mb-6 flex flex-wrap items-center gap-x-6 gap-y-3 p-4">
           <div>
             <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-zinc-500">
@@ -284,9 +318,11 @@ export function PlaylistPage() {
           icon={<ListMusic size={24} />}
           title="Nothing in here yet"
           description={
-            playlist.canEdit
-              ? 'Use the playlist button on any track row to add music.'
-              : 'The owner has not added anything yet.'
+            playlist.kind === 'blend'
+              ? 'Neither of you has played enough yet. Listen to a few things and refresh.'
+              : playlist.canEdit
+                ? 'Use the playlist button on any track row to add music.'
+                : 'The owner has not added anything yet.'
           }
         />
       ) : (
