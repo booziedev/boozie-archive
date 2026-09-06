@@ -20,6 +20,7 @@ import {
 import { CoverImage } from './CoverImage';
 import { FavoriteButton } from './FavoriteButton';
 import { ListenAlongPeers } from './ListenAlongPeers';
+import { SleepTimer } from './SleepTimer';
 import { QueuePanel } from './QueuePanel';
 import { SeekBar } from './SeekBar';
 import { mediaUrl } from '../lib/api';
@@ -208,6 +209,7 @@ export function Player() {
 
           <div className="flex items-center justify-center gap-2">
             <ListenAlongPeers />
+            <SleepTimer />
             <FavoriteButton kind="track" id={current.id} label={current.title} />
             <a
               href={mediaUrl.download(current.id)}
@@ -310,6 +312,7 @@ export function Player() {
             >
               <Download size={18} />
             </a>
+            <SleepTimer />
             <button
               type="button"
               onClick={() => setQueueOpen(true)}
