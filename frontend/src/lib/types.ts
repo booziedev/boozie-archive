@@ -425,8 +425,10 @@ export interface Playlist {
   name: string;
   description: string | null;
   visibility: PlaylistVisibility;
-  kind: 'manual' | 'blend';
+  kind: 'manual' | 'blend' | 'wrapped';
   blendWith: string | null;
+  /** Which generator built it, when it was generated. */
+  generator: 'top_year' | 'on_repeat' | 'time_capsule' | null;
   trackCount: number;
   duration: number;
   /** An uploaded cover; otherwise coverId's album art is used. */

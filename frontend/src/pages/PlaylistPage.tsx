@@ -78,7 +78,10 @@ export function PlaylistPage() {
   });
 
   const refresh = useMutation({
-    mutationFn: () => api.blend(otherMember, true),
+    mutationFn: () =>
+      playlist?.kind === 'wrapped' && playlist.generator
+        ? api.refreshWrapped(playlist.generator)
+        : api.blend(otherMember, true),
     onSuccess: invalidate,
   });
 
@@ -194,7 +197,11 @@ export function PlaylistPage() {
 
         <div className="min-w-0 flex-1">
           <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-accent-400">
-            {playlist.kind === 'blend' ? 'Blend' : 'Playlist'}
+            {playlist.kind === 'blend'
+              ? 'Blend'
+              : playlist.kind === 'wrapped'
+                ? 'Your listening'
+                : 'Playlist'}
           </p>
 
           {editing ? (
@@ -314,13 +321,17 @@ export function PlaylistPage() {
                 }`,
               }}
             />
-            {playlist.kind === 'blend' && (
+            {playlist.kind !== 'manual' && (
               <button
                 type="button"
                 onClick={() => refresh.mutate()}
                 disabled={refresh.isPending}
                 className="btn-ghost"
-                title="Rebuild it from what you have both played since"
+                title={
+                  playlist.kind === 'blend'
+                    ? 'Rebuild it from what you have both played since'
+                    : 'Rebuild it from what you have played since'
+                }
               >
                 {refresh.isPending ? (
                   <Loader2 size={15} className="animate-spin" />
@@ -396,7 +407,7 @@ export function PlaylistPage() {
               ? 'Neither of you has played enough yet. Listen to a few things and refresh.'
               : playlist.canEdit
                 ? 'Use the playlist button on any track row to add music.'
-                : 'The owner has not added anything yet.'
+                  : 'The owner has not added anything yet.'
           }
         />
       ) : (

@@ -17,6 +17,12 @@ import type { Track } from '../types.js';
 export type PlaylistVisibility = 'everyone' | 'friends' | 'private';
 
 /**
+ * A playlist is either hand-made or generated. Generated ones are rebuilt from
+ * the play log, which is why nobody edits their tracks.
+ */
+export type PlaylistKind = 'manual' | 'blend' | 'wrapped';
+
+/**
  * What one invited person may do.
  *
  * A viewer can open the playlist and download it; a collaborator can also
@@ -42,12 +48,14 @@ export interface Playlist {
   name: string;
   description: string | null;
   visibility: PlaylistVisibility;
-  kind: 'manual' | 'blend';
+  kind: PlaylistKind;
   blendWith: string | null;
   trackCount: number;
   duration: number;
   /** An uploaded cover, when there is one. */
   coverUrl: string | null;
+  /** Which generator built it, for the ones that were generated. */
+  generator: string | null;
   /** Otherwise cover art comes from the first track that has an album. */
   coverId: string | null;
   /** How many people have been invited, so the UI can badge the button. */
@@ -88,9 +96,10 @@ interface PlaylistRow {
   name: string;
   description: string | null;
   visibility: PlaylistVisibility;
-  kind: 'manual' | 'blend';
+  kind: PlaylistKind;
   blend_with: string | null;
   cover_url: string | null;
+  generator: string | null;
   created_at: Date;
   updated_at: Date;
   track_count: string;
@@ -136,6 +145,7 @@ function toPlaylist(row: PlaylistRow, viewerId: string, canEdit: boolean): Playl
     trackCount: Number.parseInt(row.track_count, 10),
     duration: Number.parseFloat(row.duration ?? '0'),
     coverUrl: row.cover_url,
+    generator: row.generator,
     coverId: row.cover_id,
     memberCount: Number.parseInt(row.member_count ?? '0', 10),
     createdAt: row.created_at.toISOString(),
@@ -222,6 +232,11 @@ export async function listPlaylists(viewerId: string, ownerId?: string): Promise
        AND greatest(f.requester_id, f.addressee_id) = greatest(p.owner_id, $1::uuid)
        AND f.status = 'accepted'
       WHERE ($2::uuid IS NULL OR p.owner_id = $2)
+        -- A generated list with nothing in it yet (no listening in that
+        -- window) is not worth a card. The row stays so its refresh timing
+        -- and its place in the year survive.
+        AND (p.kind <> 'wrapped'
+             OR EXISTS (SELECT 1 FROM playlist_tracks t WHERE t.playlist_id = p.id))
         AND (p.owner_id = $1
          OR p.blend_with = $1
          OR EXISTS (SELECT 1 FROM playlist_members m
@@ -609,6 +624,12 @@ export async function setCover(viewerId: string, playlistId: string, coverUrl: s
  * refresh and a share sent last week still opens the current version.
  */
 
+/** Fixed window fragments. Never built from anything a request supplies. */
+const LAST_180_DAYS = "played_at > now() - interval '180 days'";
+const LAST_30_DAYS = "played_at > now() - interval '30 days'";
+const THIS_YEAR = "date_part('year', played_at) = date_part('year', now())";
+const LAST_YEAR = "date_part('year', played_at) = date_part('year', now()) - 1";
+
 /** How many tracks a blend holds. Long enough for an evening. */
 const BLEND_SIZE = 40;
 /** Refreshed at most this often, unless someone asks for it. */
@@ -625,8 +646,14 @@ interface Candidate {
   shared: boolean;
 }
 
-/** Somebody's most-played tracks, newest listening weighted by simply being recent. */
-async function topTracks(userId: string, limit: number) {
+/**
+ * Somebody's most-played tracks over a window.
+ *
+ * `window` is a SQL fragment rather than a value because the shapes differ
+ * (a rolling interval, a calendar year, an absence of listening); it is only
+ * ever one of the constants below, never anything from a request.
+ */
+async function topTracks(userId: string, limit: number, window = LAST_180_DAYS) {
   const { rows } = await pool.query<{
     track_id: string;
     title: string;
@@ -638,7 +665,7 @@ async function topTracks(userId: string, limit: number) {
     `SELECT track_id, max(title) AS title, max(artist) AS artist,
             max(album) AS album, max(album_id) AS album_id, count(*)::text AS plays
        FROM play_history
-      WHERE user_id = $1 AND played_at > now() - interval '180 days'
+      WHERE user_id = $1 AND ${window}
       GROUP BY track_id
       ORDER BY count(*) DESC, max(played_at) DESC
       LIMIT $2`,
@@ -686,8 +713,8 @@ async function blendTracks(aId: string, bId: string): Promise<Candidate[]> {
   return picked.filter((track) => library.getTrack(track.trackId)).slice(0, BLEND_SIZE);
 }
 
-/** Replaces a blend's contents in one transaction, so it is never half-built. */
-async function fillBlend(playlistId: string, tracks: Candidate[]) {
+/** Replaces a generated playlist's contents in one transaction, so it is never half-built. */
+async function fillGenerated(playlistId: string, tracks: Candidate[]) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -795,11 +822,156 @@ export async function openBlend(viewerId: string, otherId: string, force = false
 
   const age = found[0] ? Date.now() - found[0].updated_at.getTime() : Infinity;
   if (fresh || force || age > BLEND_MAX_AGE_MS) {
-    await fillBlend(playlistId, await blendTracks(low, high));
+    await fillGenerated(playlistId, await blendTracks(low, high));
   }
 
   return {
     playlist: await getPlaylist(viewerId, playlistId),
     entries: await listEntries(viewerId, playlistId),
   };
+}
+
+// ----------------------------------------------------------------- wrapped
+
+/**
+ * "Your listening" — generated playlists built from one person's play log.
+ *
+ * The Wrapped/Replay idea, available all year rather than only in December,
+ * and private until its owner decides otherwise. They are ordinary playlists
+ * underneath, so sharing, covers and the download button all come for free;
+ * what makes them different is that nobody edits the tracks by hand.
+ */
+
+export type Generator = 'top_year' | 'on_repeat' | 'time_capsule';
+
+interface GeneratorSpec {
+  /** The listening window, as one of the fixed fragments above. */
+  window: string;
+  size: number;
+  /** How long a built list stays fresh. Infinity means "never rebuild". */
+  maxAgeMs: number;
+  title: (year: number) => string;
+  description: string;
+}
+
+const GENERATORS: Record<Generator, GeneratorSpec> = {
+  top_year: {
+    window: THIS_YEAR,
+    size: 50,
+    maxAgeMs: 24 * 60 * 60 * 1000,
+    title: (year) => `Your top tracks of ${year}`,
+    description: 'The most played things in your library this year, rebuilt daily.',
+  },
+  on_repeat: {
+    window: LAST_30_DAYS,
+    size: 30,
+    maxAgeMs: 6 * 60 * 60 * 1000,
+    title: () => 'On repeat',
+    description: 'What you have had on over the last month.',
+  },
+  time_capsule: {
+    // Once a year is over it cannot change, so this is built once and kept.
+    window: LAST_YEAR,
+    size: 50,
+    maxAgeMs: Number.POSITIVE_INFINITY,
+    title: (year) => `Time capsule ${year - 1}`,
+    description: 'What you were playing last year.',
+  },
+};
+
+export function isGenerator(value: unknown): value is Generator {
+  return value === 'top_year' || value === 'on_repeat' || value === 'time_capsule';
+}
+
+/**
+ * A key that pins a generated list to the period it covers.
+ *
+ * "On repeat" is always the last thirty days, so it has none and is rebuilt in
+ * place forever. The other two belong to a year: when the year turns, the key
+ * changes and next year's is a new playlist rather than this one being
+ * overwritten — which is the whole point of a time capsule.
+ */
+function generatorKey(generator: Generator, year: number): string | null {
+  if (generator === 'on_repeat') return null;
+  return String(generator === 'time_capsule' ? year - 1 : year);
+}
+
+/**
+ * Opens one of the generated lists, building or refreshing it as needed.
+ *
+ * Created private: what somebody listens to is theirs to publish, and a
+ * playlist that appeared on a profile without being asked for would be a
+ * nasty surprise. The owner can change that afterwards like any other
+ * playlist — `updatePlaylist` already allows it, while `canEditRow` keeps the
+ * tracks themselves read-only.
+ */
+export async function openWrapped(userId: string, generator: Generator, force = false) {
+  const spec = GENERATORS[generator];
+  const year = new Date().getFullYear();
+  const key = generatorKey(generator, year);
+
+  const { rows: found } = await pool.query<{ id: string; updated_at: Date }>(
+    `SELECT id, updated_at FROM playlists
+      WHERE kind = 'wrapped' AND owner_id = $1 AND generator = $2
+        AND COALESCE(generator_key, '') = COALESCE($3, '')`,
+    [userId, generator, key],
+  );
+
+  let playlistId = found[0]?.id;
+  let fresh = false;
+
+  if (!playlistId) {
+    const { rows } = await pool.query<{ id: string }>(
+      `INSERT INTO playlists (owner_id, name, description, visibility, kind, generator, generator_key)
+       VALUES ($1, $2, $3, 'private', 'wrapped', $4, $5)
+       ON CONFLICT DO NOTHING
+       RETURNING id`,
+      [userId, spec.title(year), spec.description, generator, key],
+    );
+    playlistId = rows[0]?.id;
+
+    // Two tabs asking at once: the unique index picks a winner, and the loser
+    // reads the row rather than failing.
+    if (!playlistId) {
+      const { rows: raced } = await pool.query<{ id: string }>(
+        `SELECT id FROM playlists
+          WHERE kind = 'wrapped' AND owner_id = $1 AND generator = $2
+            AND COALESCE(generator_key, '') = COALESCE($3, '')`,
+        [userId, generator, key],
+      );
+      playlistId = raced[0]!.id;
+    } else {
+      fresh = true;
+    }
+  }
+
+  const age = found[0] ? Date.now() - found[0].updated_at.getTime() : Number.POSITIVE_INFINITY;
+  if (fresh || force || age > spec.maxAgeMs) {
+    const tracks = await topTracks(userId, spec.size, spec.window);
+    await fillGenerated(
+      playlistId,
+      tracks
+        .map((track) => ({ ...track, shared: false }))
+        .filter((track) => library.getTrack(track.trackId)),
+    );
+  }
+
+  return {
+    playlist: await getPlaylist(userId, playlistId),
+    entries: await listEntries(userId, playlistId),
+  };
+}
+
+/** All three, for the "Your listening" page. Cheap: each is one lookup. */
+export async function openAllWrapped(userId: string) {
+  const generators: Generator[] = ['on_repeat', 'top_year', 'time_capsule'];
+  const results = await Promise.all(
+    generators.map(async (generator) => ({
+      generator,
+      ...(await openWrapped(userId, generator)),
+    })),
+  );
+  // A generator with nothing to show yet (no listening in that window) is left
+  // out rather than presented as an empty playlist.
+  return results.filter((result) => result.playlist.trackCount > 0);
 }

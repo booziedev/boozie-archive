@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Clock, Disc3, Music2, Users } from 'lucide-react';
+import { Clock, Disc3, ListMusic, Lock, Music2, Users } from 'lucide-react';
 
 import { CoverImage } from '../components/CoverImage';
 import { PageHeader, SectionHeader } from '../components/PageHeader';
 import { EmptyState, ErrorState } from '../components/states';
-import { history } from '../lib/api';
+import { history, playlists } from '../lib/api';
+import { formatRuntime } from '../lib/format';
 import type { HistoryRange, TopEntry } from '../lib/types';
 
 const RANGES: { value: HistoryRange; label: string }[] = [
@@ -28,6 +29,71 @@ function hourLabel(hour: number): string {
   const suffix = hour < 12 ? 'am' : 'pm';
   const twelve = hour % 12 === 0 ? 12 : hour % 12;
   return `${twelve}${suffix}`;
+}
+
+/**
+ * The generated playlists, built from this account's own listening.
+ *
+ * They are made on first visit and then kept, so this both fetches and creates
+ * them. Anything with nothing in it yet is left out by the server rather than
+ * shown as an empty card.
+ */
+function WrappedPlaylists() {
+  const query = useQuery({
+    queryKey: ['playlists', 'wrapped'],
+    queryFn: playlists.wrapped,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const wrapped = query.data?.wrapped ?? [];
+  if (query.isLoading || wrapped.length === 0) return null;
+
+  return (
+    <section>
+      <SectionHeader
+        title="Made for you"
+        action={<span className="text-xs text-zinc-600">Private until you share them</span>}
+      />
+      <div className="grid gap-3 sm:grid-cols-3">
+        {wrapped.map(({ playlist, entries }) => (
+          <Link
+            key={playlist.id}
+            to={`/playlists/${playlist.id}`}
+            className="surface surface-hover group flex gap-3 p-3"
+          >
+            {/* The first four covers, as a little mosaic. */}
+            <span className="grid h-16 w-16 shrink-0 grid-cols-2 grid-rows-2 overflow-hidden rounded-lg">
+              {entries.slice(0, 4).map((entry) => (
+                <CoverImage
+                  key={entry.trackId}
+                  id={entry.albumId ?? ''}
+                  name={entry.album ?? entry.title}
+                  size={128}
+                  rounded=""
+                  className="h-8 w-8"
+                />
+              ))}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="flex items-center gap-1.5">
+                <ListMusic size={12} className="shrink-0 text-accent-400" />
+                <span className="truncate text-sm font-semibold text-zinc-100">{playlist.name}</span>
+              </span>
+              <span className="mt-0.5 block truncate text-xs text-zinc-500">
+                {playlist.trackCount} tracks · {formatRuntime(playlist.duration)}
+              </span>
+              {playlist.visibility === 'private' && (
+                <span className="mt-1.5 flex items-center gap-1 text-[10px] text-zinc-600">
+                  <Lock size={9} />
+                  Only you
+                </span>
+              )}
+            </span>
+          </Link>
+        ))}
+      </div>
+    </section>
+  );
 }
 
 function Stat({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
@@ -152,6 +218,8 @@ export function RecapPage() {
           </div>
         }
       />
+
+      <WrappedPlaylists />
 
       {recapQuery.isError ? (
         <ErrorState error={recapQuery.error} onRetry={() => recapQuery.refetch()} />

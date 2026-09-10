@@ -415,6 +415,17 @@ export const playlists = {
     jsonRequest<{ playlist: Playlist }>(`/api/playlists/${encodeURIComponent(id)}/cover`, 'DELETE'),
   remove: (id: string) =>
     jsonRequest<{ ok: true }>(`/api/playlists/${encodeURIComponent(id)}`, 'DELETE'),
+  /** The generated "your listening" playlists, built on first ask. */
+  wrapped: () =>
+    request<{
+      wrapped: { generator: string; playlist: Playlist; entries: PlaylistEntry[] }[];
+    }>('/api/playlists/wrapped'),
+  refreshWrapped: (generator: string) =>
+    jsonRequest<{ playlist: Playlist; entries: PlaylistEntry[] }>(
+      `/api/playlists/wrapped/${encodeURIComponent(generator)}?refresh=1`,
+      'POST',
+    ),
+
   /**
    * Opens the blend shared with one friend, building it if it does not exist.
    * `refresh` rebuilds it now instead of waiting for it to go stale.

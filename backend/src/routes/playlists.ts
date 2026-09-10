@@ -11,7 +11,10 @@ import {
   getPlaylist,
   listEntries,
   listMembers,
+  isGenerator,
+  openAllWrapped,
   openBlend,
+  openWrapped,
   removeMember,
   setCover,
   setMember,
@@ -43,6 +46,24 @@ export const playlistRoutes: FastifyPluginAsync = async (app: FastifyInstance) =
     const { friendId } = request.params as { friendId: string };
     const { refresh } = request.query as { refresh?: string };
     return openBlend(request.user!.id, friendId, refresh === '1');
+  });
+
+  /**
+   * The generated "your listening" lists, built on first ask and refreshed
+   * when they go stale. Always the caller's own — there is no way to ask for
+   * somebody else's, because the play log they come from is private.
+   */
+  app.get('/playlists/wrapped', async (request) => ({
+    wrapped: await openAllWrapped(request.user!.id),
+  }));
+
+  app.post('/playlists/wrapped/:generator', async (request, reply) => {
+    const { generator } = request.params as { generator: string };
+    const { refresh } = request.query as { refresh?: string };
+    if (!isGenerator(generator)) {
+      return reply.code(404).send({ error: 'No such list.', code: 'not_found' });
+    }
+    return openWrapped(request.user!.id, generator, refresh === '1');
   });
 
   app.post('/playlists', async (request, reply) => {

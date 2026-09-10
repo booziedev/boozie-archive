@@ -483,4 +483,34 @@ export const migrations: Migration[] = [
       ALTER TABLE playlists DROP COLUMN IF EXISTS collaborative;
     `,
   },
+  {
+    id: '011_wrapped',
+    sql: /* sql */ `
+      /*
+       * Generated "your listening" playlists — the Wrapped/Replay idea, built
+       * from the play log rather than by hand.
+       *
+       * They are ordinary playlists with a generator recorded, so they share
+       * everything: sharing, covers, the player, the download button. What the
+       * generator column buys is knowing which one to rebuild and when.
+       *
+       * generator_key pins a generator to a period where that matters — the
+       * year for a time capsule — so next year's is a new playlist rather than
+       * this one being overwritten.
+       */
+      ALTER TABLE playlists DROP CONSTRAINT IF EXISTS playlists_kind_check;
+      ALTER TABLE playlists
+        ADD CONSTRAINT playlists_kind_check
+        CHECK (kind IN ('manual', 'blend', 'wrapped'));
+
+      ALTER TABLE playlists ADD COLUMN IF NOT EXISTS generator text;
+      ALTER TABLE playlists ADD COLUMN IF NOT EXISTS generator_key text;
+
+      -- One per person per generator per period, so opening it twice does not
+      -- make a second copy.
+      CREATE UNIQUE INDEX IF NOT EXISTS playlists_generator_key
+        ON playlists (owner_id, generator, COALESCE(generator_key, ''))
+        WHERE kind = 'wrapped';
+    `,
+  },
 ];
