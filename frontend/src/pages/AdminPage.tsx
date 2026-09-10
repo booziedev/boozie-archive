@@ -6,15 +6,18 @@ import {
   Link2,
   Loader2,
   Plus,
+  Radio,
   ShieldCheck,
   Ticket,
   Trash2,
   ToggleLeft,
   ToggleRight,
   Users,
+  Wrench,
 } from 'lucide-react';
 
 import { AdminSiteControls } from '../components/AdminSiteControls';
+import { AdminLive } from '../components/AdminLive';
 import { PageHeader, SectionHeader } from '../components/PageHeader';
 import { EmptyState, ErrorState } from '../components/states';
 import { admin } from '../lib/api';
@@ -103,8 +106,18 @@ function CopyButton({ value, label, icon }: { value: string; label: string; icon
 }
 
 /** Invite management and user administration. Admins only. */
+type AdminTab = 'live' | 'invites' | 'users' | 'site';
+
+const TABS: { key: AdminTab; label: string; icon: typeof Radio }[] = [
+  { key: 'live', label: 'Live', icon: Radio },
+  { key: 'invites', label: 'Invites', icon: Ticket },
+  { key: 'users', label: 'Accounts', icon: Users },
+  { key: 'site', label: 'Site', icon: Wrench },
+];
+
 export function AdminPage() {
   const { user } = useAuth();
+  const [tab, setTab] = useState<AdminTab>('live');
   const queryClient = useQueryClient();
   const [now, setNow] = useState(() => Date.now());
 
@@ -194,7 +207,7 @@ export function AdminPage() {
     <div className="space-y-10">
       <PageHeader
         title="Admin"
-        subtitle="Invite codes and accounts for the archive."
+        subtitle="Invite codes, accounts and what is playing right now."
         actions={
           <span className="pill pill-accent">
             <ShieldCheck size={12} />
@@ -203,15 +216,36 @@ export function AdminPage() {
         }
       />
 
-      {actionError && (
+      {/* The page had grown to four stacked sections; tabs keep the one you
+          want in front of you rather than several screens down. */}
+      <div className="flex gap-1.5 rounded-xl border border-white/5 bg-white/[0.02] p-1">
+        {TABS.map(({ key, label, icon: Icon }) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setTab(key)}
+            className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold uppercase tracking-widest transition-colors ${
+              tab === key ? 'bg-white/10 text-white' : 'text-zinc-500 hover:text-zinc-300'
+            }`}
+          >
+            <Icon size={13} />
+            <span className="hidden sm:inline">{label}</span>
+          </button>
+        ))}
+      </div>
+
+      {tab === 'live' && <AdminLive />}
+
+      {tab !== 'live' && actionError && (
         <p className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
           {actionError}
         </p>
       )}
 
-      <AdminSiteControls />
+      {tab === 'site' && <AdminSiteControls />}
 
       {/* ------------------------------ create ---------------------------- */}
+      {tab === 'invites' && (
       <section className="surface p-5">
         <SectionHeader title="Create an invite" />
 
@@ -298,7 +332,10 @@ export function AdminPage() {
         )}
       </section>
 
+      )}
+
       {/* ------------------------------ invites --------------------------- */}
+      {tab === 'invites' && (
       <section>
         <SectionHeader
           title={`Invite codes (${activeCount} active)`}
@@ -409,7 +446,10 @@ export function AdminPage() {
         )}
       </section>
 
+      )}
+
       {/* ------------------------------- users ---------------------------- */}
+      {tab === 'users' && (
       <section>
         <SectionHeader title={`Accounts (${users.length})`} />
 
@@ -522,11 +562,15 @@ export function AdminPage() {
         )}
       </section>
 
-      <p className="flex items-center gap-2 text-xs text-zinc-600">
-        <Users size={13} />
-        Anyone with an active code can create an account. Disable a code to stop it being used without
-        removing the accounts that already used it.
-      </p>
+      )}
+
+      {tab === 'invites' && (
+        <p className="flex items-center gap-2 text-xs text-zinc-600">
+          <Users size={13} />
+          Anyone with an active code can create an account. Disable a code to stop it being used
+          without removing the accounts that already used it.
+        </p>
+      )}
     </div>
   );
 }

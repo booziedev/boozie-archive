@@ -259,6 +259,21 @@ async function main() {
       if (!request.user) {
         return reply.code(401).send({ error: 'Sign in to browse the archive.', code: 'unauthenticated' });
       }
+
+      /*
+       * Timed out.
+       *
+       * The session is left alone on purpose: signing them out would look like
+       * a bug, and they would just sign back in. Refusing everything but
+       * logging out lets the client show how long is left and why.
+       */
+      if (request.user.timeoutUntil && pathname !== '/api/auth/logout') {
+        return reply.code(403).send({
+          error: 'Your access is paused for now.',
+          code: 'timed_out',
+          until: request.user.timeoutUntil,
+        });
+      }
     });
 
     /**

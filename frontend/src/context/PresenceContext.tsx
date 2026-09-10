@@ -111,6 +111,8 @@ export function PresenceProvider({ children }: { children: ReactNode }) {
 
   const [party, setParty] = useState<PartyState | null>(null);
   const [statuses, setStatuses] = useState<Record<string, NowPlaying>>({});
+  /** The last force-pause stamp acted on, so one instruction pauses once. */
+  const lastForcePauseRef = useRef<string | null>(null);
   const [outOfSync, setOutOfSync] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -355,6 +357,19 @@ export function PresenceProvider({ children }: { children: ReactNode }) {
         setStatuses(result.statuses);
         setParty(result.party);
 
+        /*
+         * An admin asked this player to stop.
+         *
+         * Acted on once per stamp: without the ref every poll for the next two
+         * minutes would re-pause, and pressing play again would be impossible
+         * rather than merely discouraged. It is a request, not a lock — a
+         * timeout is what stops somebody for longer.
+         */
+        if (result.forcePauseAt && result.forcePauseAt !== lastForcePauseRef.current) {
+          lastForcePauseRef.current = result.forcePauseAt;
+          pause();
+        }
+
         // Following, and not deliberately paused: steer the player at the host.
         const live = result.party;
         if (live && !live.isHost && live.live && !outOfSyncRef.current) {
@@ -378,7 +393,7 @@ export function PresenceProvider({ children }: { children: ReactNode }) {
       window.clearInterval(timer);
       document.removeEventListener('visibilitychange', onVisible);
     };
-  }, [applyPartyState, user]);
+  }, [applyPartyState, pause, user]);
 
   /**
    * A guest pausing means "hold on a second", not "leave".

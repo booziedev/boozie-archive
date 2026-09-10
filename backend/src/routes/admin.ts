@@ -13,6 +13,13 @@ import {
   quarantinePath,
   type SuggestionStatus,
 } from '../lib/suggestions.js';
+import {
+  clearTimeout as clearUserTimeout,
+  forcePause,
+  liveListeners,
+  setTimeout as setUserTimeout,
+  timedOutUsers,
+} from '../lib/moderation.js';
 import { getSettings, setAnnouncement, setMaintenance } from '../lib/settings.js';
 import {
   createInvite,
@@ -143,6 +150,44 @@ export const adminRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
       request.user!.id,
     );
     return { settings };
+  });
+
+  // --------------------------------------------------- live moderation
+
+  /**
+   * Who is playing what, right now.
+   *
+   * This shows every listener regardless of their own "who can see what I'm
+   * listening to" setting: that setting governs other members, not the admin of
+   * the server they are on.
+   */
+  app.get('/admin/live', async () => {
+    const [listeners, timedOut] = await Promise.all([liveListeners(), timedOutUsers()]);
+    return { listeners, timedOut };
+  });
+
+  /** Asks their player to stop. Picked up on their next presence poll. */
+  app.post('/admin/users/:id/pause', async (request) => {
+    const { id } = request.params as { id: string };
+    return forcePause(id);
+  });
+
+  /** Locks the account out for a while. It lifts itself when the time is up. */
+  app.post('/admin/users/:id/timeout', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = (request.body ?? {}) as { minutes?: unknown };
+    const minutes = Number(body.minutes);
+    if (!Number.isFinite(minutes) || minutes <= 0) {
+      return reply.code(400).send({ error: 'Expected { minutes: number }' });
+    }
+    const result = await setUserTimeout(request.user!.id, id, minutes);
+    request.log.info(`${request.user!.username} timed out ${id} until ${result.timeoutUntil}`);
+    return result;
+  });
+
+  app.delete('/admin/users/:id/timeout', async (request) => {
+    const { id } = request.params as { id: string };
+    return clearUserTimeout(id);
   });
 
   // -------------------------------------------------- suggestion review

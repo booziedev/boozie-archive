@@ -27,6 +27,14 @@ export interface PublicUser {
   disabled: boolean;
   createdAt: string;
   lastLoginAt: string | null;
+  /**
+   * Set while an admin has this account timed out.
+   *
+   * Distinct from `disabled`, which is permanent: this expires by itself, and
+   * the session survives it — the gate refuses requests while it holds and the
+   * client shows a countdown rather than silently signing them out.
+   */
+  timeoutUntil?: string | null;
 }
 
 export interface AdminUser extends PublicUser {
@@ -69,6 +77,7 @@ interface UserRow {
   disabled: boolean;
   created_at: Date;
   last_login_at: Date | null;
+  timeout_until?: Date | null;
 }
 
 function toPublicUser(row: UserRow): PublicUser {
@@ -79,6 +88,11 @@ function toPublicUser(row: UserRow): PublicUser {
     disabled: row.disabled,
     createdAt: row.created_at.toISOString(),
     lastLoginAt: row.last_login_at ? row.last_login_at.toISOString() : null,
+    // Only surfaced while it is still in force; a lapsed one is not news.
+    timeoutUntil:
+      row.timeout_until && row.timeout_until.getTime() > Date.now()
+        ? row.timeout_until.toISOString()
+        : null,
   };
 }
 

@@ -513,4 +513,27 @@ export const migrations: Migration[] = [
         WHERE kind = 'wrapped';
     `,
   },
+  {
+    id: '012_moderation',
+    sql: /* sql */ `
+      /*
+       * Temporary timeouts, as distinct from the permanent disabled flag.
+       *
+       * A disabled account is over; a timeout expires on its own, so nobody has
+       * to remember to undo it. Null means no timeout — a past timestamp is the
+       * same thing and costs nothing to leave lying around.
+       */
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS timeout_until timestamptz;
+
+      /*
+       * When an admin last asked this account's player to stop.
+       *
+       * The client already polls its presence a few times a minute, so the
+       * instruction rides along on a request that was happening anyway rather
+       * than needing a socket of its own. The client acts on any stamp newer
+       * than the last one it saw.
+       */
+      ALTER TABLE listening_status ADD COLUMN IF NOT EXISTS force_pause_at timestamptz;
+    `,
+  },
 ];

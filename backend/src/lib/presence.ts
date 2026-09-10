@@ -260,6 +260,21 @@ export async function heartbeat(
   return { now: input ? await myNowPlaying(userId) : null, party };
 }
 
+/**
+ * When an admin last asked this account's player to stop, if ever.
+ *
+ * Read on the same poll that carries everyone's statuses, so the instruction
+ * arrives within a few seconds without needing a socket of its own. The client
+ * acts on any stamp newer than the last one it saw and then leaves it alone.
+ */
+export async function forcePauseAt(userId: string): Promise<string | null> {
+  const { rows } = await pool.query<{ force_pause_at: Date | null }>(
+    'SELECT force_pause_at FROM listening_status WHERE user_id = $1',
+    [userId],
+  );
+  return rows[0]?.force_pause_at?.toISOString() ?? null;
+}
+
 export async function clearNowPlaying(userId: string) {
   await pool.query('DELETE FROM listening_status WHERE user_id = $1', [userId]);
 }

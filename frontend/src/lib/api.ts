@@ -14,6 +14,8 @@ import type {
   GifResult,
   Invite,
   LibraryStats,
+  LiveListener,
+  TimedOutUser,
   HistoryRange,
   Lyrics,
   Message,
@@ -220,6 +222,19 @@ export const admin = {
     jsonRequest<{ ok: true }>(`/api/admin/invites/${encodeURIComponent(id)}`, 'DELETE'),
 
   users: () => request<{ users: AdminAccountUser[] }>('/api/admin/users'),
+
+  /** Who is playing what right now, and who is currently timed out. */
+  live: () => request<{ listeners: LiveListener[]; timedOut: TimedOutUser[] }>('/api/admin/live'),
+  pauseUser: (id: string) =>
+    jsonRequest<{ ok: true }>(`/api/admin/users/${encodeURIComponent(id)}/pause`, 'POST'),
+  timeoutUser: (id: string, minutes: number) =>
+    jsonRequest<{ timeoutUntil: string }>(
+      `/api/admin/users/${encodeURIComponent(id)}/timeout`,
+      'POST',
+      { minutes },
+    ),
+  clearTimeout: (id: string) =>
+    jsonRequest<{ ok: true }>(`/api/admin/users/${encodeURIComponent(id)}/timeout`, 'DELETE'),
   updateUser: (id: string, patch: { role?: 'user' | 'admin'; disabled?: boolean }) =>
     jsonRequest<{ user: AccountUser }>(`/api/admin/users/${encodeURIComponent(id)}`, 'PATCH', patch),
   deleteUser: (id: string) =>
@@ -312,9 +327,12 @@ export const presence = {
    * the viewer may see, and the session they are in.
    */
   live: () =>
-    request<{ statuses: Record<string, NowPlaying>; party: PartyState | null }>(
-      '/api/presence/live',
-    ),
+    request<{
+      statuses: Record<string, NowPlaying>;
+      party: PartyState | null;
+      /** Set when an admin has asked this player to stop. */
+      forcePauseAt: string | null;
+    }>('/api/presence/live'),
 
   privacy: () => request<PrivacySettings>('/api/presence/privacy'),
   setPrivacy: (patch: Partial<PrivacySettings>) =>

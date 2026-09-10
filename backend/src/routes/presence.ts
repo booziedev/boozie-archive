@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 
 import {
   currentParty,
+  forcePauseAt,
   getParty,
   getPrivacy,
   heartbeat,
@@ -44,11 +45,14 @@ export const presenceRoutes: FastifyPluginAsync = async (app: FastifyInstance) =
    * heartbeat, twenty seconds later.
    */
   app.get('/presence/live', async (request) => {
-    const [statuses, party] = await Promise.all([
+    const [statuses, party, forcePause] = await Promise.all([
       visibleStatuses(request.user!.id),
       currentParty(request.user!.id),
+      forcePauseAt(request.user!.id),
     ]);
-    return { statuses, party };
+    // `forcePause` is an admin asking this player to stop; the client compares
+    // it against the last one it acted on.
+    return { statuses, party, forcePauseAt: forcePause };
   });
 
   app.get('/presence/privacy', async (request) => getPrivacy(request.user!.id));

@@ -22,6 +22,8 @@ interface AuthContextValue {
   needsAuth: boolean;
   /** True when maintenance is on and this viewer is not an admin. */
   lockedOut: boolean;
+  /** True while an admin has this account temporarily paused. */
+  timedOut: boolean;
   signIn: (username: string, password: string) => Promise<void>;
   signUp: (input: { username: string; password: string; inviteCode?: string }) => Promise<void>;
   signOut: () => Promise<void>;
@@ -114,6 +116,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       info,
       lockedOut: maintenanceOn && user?.role !== 'admin',
+      // A timeout lapses on its own, so this is judged against the clock rather
+      // than trusted from whenever the account was last fetched.
+      timedOut: Boolean(user?.timeoutUntil && new Date(user.timeoutUntil).getTime() > Date.now()),
       isLoading: contextQuery.isLoading || meQuery.isLoading,
       isAdmin: user?.role === 'admin',
       needsAuth: authRequired && !user,

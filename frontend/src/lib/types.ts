@@ -154,6 +154,8 @@ export interface AccountUser {
   disabled: boolean;
   createdAt: string;
   lastLoginAt: string | null;
+  /** Set while an admin has this account temporarily locked out. */
+  timeoutUntil?: string | null;
 }
 
 export interface AdminAccountUser extends AccountUser {
@@ -494,4 +496,34 @@ export interface DirectoryStation {
   country: string | null;
   tags: string[];
   votes: number;
+}
+
+/** One person playing something, as the admin Live tab sees them. */
+export interface LiveListener {
+  userId: string;
+  username: string;
+  displayName: string | null;
+  avatarUrl: string | null;
+  role: 'user' | 'admin';
+  trackId: string;
+  title: string;
+  artist: string;
+  album: string | null;
+  albumId: string | null;
+  coverId: string | null;
+  duration: number | null;
+  position: number;
+  isPlaying: boolean;
+  isRadio: boolean;
+  updatedAt: string;
+  forcePauseAt: string | null;
+  timeoutUntil: string | null;
+}
+
+export interface TimedOutUser {
+  userId: string;
+  username: string;
+  displayName: string | null;
+  avatarUrl: string | null;
+  timeoutUntil: string;
 }

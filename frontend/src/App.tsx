@@ -20,6 +20,7 @@ import { NotFoundPage } from './pages/NotFoundPage';
 import { PlaylistPage } from './pages/PlaylistPage';
 import { PlaylistsPage } from './pages/PlaylistsPage';
 import { RadioPage } from './pages/RadioPage';
+import { TimedOutPage } from './pages/TimedOutPage';
 import { SearchPage } from './pages/SearchPage';
 import { RecapPage } from './pages/RecapPage';
 import { SettingsPage } from './pages/SettingsPage';
@@ -75,7 +76,7 @@ function RequireAdmin({ children }: { children: ReactNode }) {
 }
 
 export function App() {
-  const { needsAuth, isLoading, lockedOut } = useAuth();
+  const { needsAuth, isLoading, lockedOut, timedOut } = useAuth();
 
   // Wait for the session check before deciding what to render, so a signed-in
   // visitor never sees the login screen flash on a reload.
@@ -84,6 +85,21 @@ export function App() {
       <div className="flex min-h-[100dvh] items-center justify-center">
         <Disc3 size={28} className="animate-spin text-accent-500" style={{ animationDuration: '2.4s' }} />
       </div>
+    );
+  }
+
+  /**
+   * Timed out by an admin. Checked before everything else: the server refuses
+   * every request but signing out, so any other screen would be a wall of
+   * errors.
+   */
+  if (timedOut) {
+    return (
+      <ErrorBoundary>
+        <Routes>
+          <Route path="*" element={<TimedOutPage />} />
+        </Routes>
+      </ErrorBoundary>
     );
   }
 
