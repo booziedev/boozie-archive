@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowDown,
   ArrowUp,
+  Download,
   ImagePlus,
   ListMusic,
   Loader2,
@@ -19,8 +20,8 @@ import { CoverImage } from '../components/CoverImage';
 import { PlaylistMembers } from '../components/PlaylistMembers';
 import { ShareButton } from '../components/ShareDialog';
 import { EmptyState } from '../components/states';
-import { playlists as api } from '../lib/api';
-import { formatDuration, formatRuntime } from '../lib/format';
+import { mediaUrl, playlists as api } from '../lib/api';
+import { formatBytes, formatDuration, formatRuntime } from '../lib/format';
 import { usePlayer } from '../context/PlayerContext';
 import type { PlaylistEntry, PlaylistVisibility, Track } from '../lib/types';
 
@@ -134,6 +135,8 @@ export function PlaylistPage() {
 
   const tracks = playable(entries);
   const missing = entries.length - tracks.length;
+  // What the archive will actually weigh — only the tracks that still resolve.
+  const playlistBytes = tracks.reduce((sum, track) => sum + track.size, 0);
 
   return (
     <div>
@@ -311,6 +314,18 @@ export function PlaylistPage() {
               <Shuffle size={15} />
               Shuffle
             </button>
+            {tracks.length > 0 && (
+              <a
+                href={mediaUrl.downloadPlaylist(playlist.id)}
+                download
+                className="btn-ghost"
+                title={`Download all ${tracks.length} tracks as one .zip`}
+              >
+                <Download size={15} />
+                Download
+                <span className="text-zinc-600">· {formatBytes(playlistBytes)}</span>
+              </a>
+            )}
             <ShareButton
               attachment={{
                 kind: 'playlist',

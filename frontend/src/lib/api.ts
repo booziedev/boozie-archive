@@ -543,6 +543,10 @@ export const mediaUrl = {
       ? apiUrl(`/api/radio/${encodeURIComponent(trackId)}/stream`)
       : apiUrl(`/api/stream/${encodeURIComponent(trackId)}`),
   download: (trackId: string) => apiUrl(`/api/download/${encodeURIComponent(trackId)}`),
+  /** A whole album or playlist as one .zip, built as it is sent. */
+  downloadAlbum: (albumId: string) => apiUrl(`/api/download/album/${encodeURIComponent(albumId)}`),
+  downloadPlaylist: (playlistId: string) =>
+    apiUrl(`/api/download/playlist/${encodeURIComponent(playlistId)}`),
   cover: (id: string, size: 128 | 320 | 640 = 320) =>
     apiUrl(`/api/cover/${encodeURIComponent(id)}?size=${size}`),
   /** A digital booklet, addressed by its position in the album's list. */

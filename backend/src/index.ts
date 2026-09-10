@@ -178,6 +178,9 @@ async function main() {
     '/api/history',
     '/api/playlists',
     '/api/playlist-cover/',
+    // Album downloads follow the library's rules; a playlist download follows
+    // the playlist's, so it always needs an account behind it.
+    '/api/download/playlist/',
     '/api/radio',
     '/api/suggestions',
     '/api/stickers/',

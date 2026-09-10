@@ -144,6 +144,19 @@ export function AlbumPage() {
               <ListPlus size={15} />
               Queue
             </button>
+            {/* The size is on the button rather than behind a confirmation:
+                a lossless album is often over a gigabyte, and finding that out
+                after starting the download is too late. */}
+            <a
+              href={mediaUrl.downloadAlbum(album.id)}
+              download
+              className="btn-ghost"
+              title={`Download all ${tracks.length} tracks as one .zip`}
+            >
+              <Download size={15} />
+              Download
+              <span className="text-zinc-600">· {formatBytes(totalSize)}</span>
+            </a>
             {/* Digital booklets shipped with the release — Qobuz's liner notes,
                 for anyone whose rips already carry the PDF. */}
             {album.booklets?.map((booklet, index) => (

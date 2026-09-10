@@ -3,8 +3,18 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import type { FastifyInstance, FastifyPluginAsync, FastifyReply } from 'fastify';
 
+import type { Track } from '../types.js';
+
 import { MIME_TYPES, config } from '../config.js';
+import {
+  archiveName,
+  beginArchive,
+  createArchive,
+  endArchive,
+  planEntries,
+} from '../lib/archive.js';
 import { library } from '../lib/library.js';
+import { listEntries, getPlaylist } from '../lib/playlists.js';
 import { normalizeSize, resolveCover } from '../lib/covers.js';
 import { contentDisposition, safeJoin } from '../lib/paths.js';
 
@@ -111,6 +121,50 @@ async function sendFile(
   return reply.code(200).header('Content-Length', size).send(fs.createReadStream(abs));
 }
 
+/**
+ * Streams a set of tracks as one archive.
+ *
+ * The per-account guard is released on every path a request can end — finished,
+ * aborted, errored — because a lock that outlives its download would leave
+ * somebody unable to download anything until the server restarted.
+ */
+async function sendArchive(
+  request: { user?: { id: string } | null; raw: NodeJS.EventEmitter },
+  reply: FastifyReply,
+  tracks: Track[],
+  label: string,
+  numbered: boolean,
+) {
+  const userId = request.user?.id ?? 'anonymous';
+  if (!beginArchive(userId)) {
+    return reply.code(429).send({
+      error: 'One download at a time — let the current one finish first.',
+      code: 'download_in_progress',
+    });
+  }
+
+  const { entries, skipped } = planEntries(tracks, { numbered });
+  if (entries.length === 0) {
+    endArchive(userId);
+    return reply.code(404).send({ error: 'None of those files are on disk any more' });
+  }
+
+  const stream = createArchive(entries);
+  const release = () => endArchive(userId);
+  stream.on('end', release);
+  stream.on('error', release);
+  request.raw.on('close', release);
+
+  return reply
+    .header('Content-Type', 'application/zip')
+    .header('Content-Disposition', contentDisposition(archiveName(label), 'attachment'))
+    .header('Cache-Control', 'no-store')
+    .header('X-Content-Type-Options', 'nosniff')
+    .header('X-Archive-Tracks', String(entries.length))
+    .header('X-Archive-Skipped', String(skipped))
+    .send(stream);
+}
+
 /** Audio streaming, downloads and cover art. */
 
 /**
@@ -176,6 +230,53 @@ export const mediaRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
       rangeHeader: request.headers.range,
       cacheControl: 'public, max-age=3600',
     });
+  });
+
+  /**
+   * A whole album, as one .zip.
+   *
+   * Streamed rather than built first: nothing is written to the Pi's card and
+   * memory stays flat however big the album is. There is no compression — the
+   * files are already compressed — so this goes out at whatever speed the disk
+   * and the network allow.
+   *
+   * No progress bar is possible: the length is unknown until the last entry is
+   * written, so no Content-Length goes out and the browser shows an
+   * indeterminate download. That is the cost of not staging a temporary file.
+   */
+  app.get('/download/album/:id', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const album = library.getAlbum(id);
+    if (!album) return reply.code(404).send({ error: 'Album not found' });
+
+    const tracks = library.tracksOfAlbum(id);
+    if (tracks.length === 0) return reply.code(404).send({ error: 'That album has no tracks' });
+
+    return sendArchive(request, reply, tracks, `${album.artistName} - ${album.name}`, false);
+  });
+
+  /**
+   * A playlist, as one .zip, in playlist order.
+   *
+   * Anyone who can open the playlist can download it — which is what makes the
+   * viewer role worth having rather than a label. `getPlaylist` throws the same
+   * 404 a missing playlist would for anyone who cannot.
+   */
+  app.get('/download/playlist/:id', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const playlist = await getPlaylist(request.user!.id, id);
+    const entries = await listEntries(request.user!.id, id);
+
+    // Rows whose id no longer resolves are simply not in the archive; the
+    // response header says how many were left out.
+    const tracks = entries
+      .map((entry) => entry.track)
+      .filter((track): track is NonNullable<typeof track> => Boolean(track));
+    if (tracks.length === 0) {
+      return reply.code(404).send({ error: 'Nothing in that playlist can be downloaded' });
+    }
+
+    return sendArchive(request, reply, tracks, playlist.name, true);
   });
 
   /**
