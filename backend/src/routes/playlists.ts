@@ -1,12 +1,20 @@
+import fs from 'node:fs';
+import fsp from 'node:fs/promises';
+
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 
+import { deleteImageFile, maxBytesFor, resolveImageFile, storeImage } from '../lib/images.js';
 import {
   addTracks,
   createPlaylist,
   deletePlaylist,
   getPlaylist,
   listEntries,
+  listMembers,
   openBlend,
+  removeMember,
+  setCover,
+  setMember,
   listPlaylists,
   moveTrack,
   removeTrack,
@@ -21,9 +29,11 @@ import {
  * change, so there is nothing here to talk it out of.
  */
 export const playlistRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
-  app.get('/playlists', async (request) => ({
-    playlists: await listPlaylists(request.user!.id),
-  }));
+  /** `?owner=` narrows it to one person's, for a profile page. */
+  app.get('/playlists', async (request) => {
+    const { owner } = request.query as { owner?: string };
+    return { playlists: await listPlaylists(request.user!.id, owner || undefined) };
+  });
 
   /**
    * The blend this account shares with one friend, built on first ask and
@@ -75,6 +85,90 @@ export const playlistRoutes: FastifyPluginAsync = async (app: FastifyInstance) =
   app.delete('/playlists/:id/tracks/:trackId', async (request) => {
     const { id, trackId } = request.params as { id: string; trackId: string };
     return removeTrack(request.user!.id, id, trackId);
+  });
+
+  // ----------------------------------------------------------- members
+
+  app.get('/playlists/:id/members', async (request) => {
+    const { id } = request.params as { id: string };
+    return { members: await listMembers(request.user!.id, id) };
+  });
+
+  /**
+   * Invites someone, or changes what they may do. `{ role }` is 'viewer' or
+   * 'collaborator'; sending it again for the same person changes their role.
+   */
+  app.put('/playlists/:id/members/:userId', async (request) => {
+    const { id, userId } = request.params as { id: string; userId: string };
+    const body = (request.body ?? {}) as { role?: unknown };
+    return { members: await setMember(request.user!.id, id, userId, body.role ?? 'viewer') };
+  });
+
+  app.delete('/playlists/:id/members/:userId', async (request) => {
+    const { id, userId } = request.params as { id: string; userId: string };
+    return { members: await removeMember(request.user!.id, id, userId) };
+  });
+
+  // ------------------------------------------------------------- cover
+
+  /**
+   * Serves an uploaded cover.
+   *
+   * Open to any signed-in account rather than gated on the playlist: the file
+   * name is 32 random hex characters that appear nowhere but on the playlist
+   * itself, so it cannot be found without already being able to see it, and
+   * checking would mean a database round trip on every thumbnail.
+   */
+  app.get('/playlist-cover/:file', async (request, reply) => {
+    const { file } = request.params as { file: string };
+    const resolved = resolveImageFile('cover', file);
+    if (!resolved) return reply.code(404).send({ error: 'Not found' });
+
+    let stat: fs.Stats;
+    try {
+      stat = await fsp.stat(resolved.path);
+    } catch {
+      return reply.code(404).send({ error: 'Not found' });
+    }
+
+    return reply
+      .header('Content-Type', resolved.mime)
+      .header('Content-Length', stat.size)
+      .header('Content-Disposition', 'inline')
+      .header('X-Content-Type-Options', 'nosniff')
+      // A new cover is a new random name, so this can be cached hard.
+      .header('Cache-Control', 'public, max-age=31536000, immutable')
+      .send(fs.createReadStream(resolved.path));
+  });
+
+  app.post('/playlists/:id/cover', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const limit = maxBytesFor('cover');
+
+    const upload = await request.file({ limits: { fileSize: limit, files: 1 } });
+    if (!upload) return reply.code(400).send({ error: 'No image was uploaded.' });
+
+    let buffer: Buffer;
+    try {
+      buffer = await upload.toBuffer();
+    } catch {
+      return reply
+        .code(413)
+        .send({ error: `Playlist covers must be under ${Math.round(limit / 1024 / 1024)} MB.` });
+    }
+
+    // Stored first, so a failed write never clears the cover that is there.
+    const stored = await storeImage('cover', buffer);
+    const { playlist, previousCoverUrl } = await setCover(request.user!.id, id, stored.url);
+    await deleteImageFile(previousCoverUrl).catch(() => undefined);
+    return reply.code(201).send({ playlist });
+  });
+
+  app.delete('/playlists/:id/cover', async (request) => {
+    const { id } = request.params as { id: string };
+    const { playlist, previousCoverUrl } = await setCover(request.user!.id, id, null);
+    await deleteImageFile(previousCoverUrl).catch(() => undefined);
+    return { playlist };
   });
 
   /** Reorder: `{ to }` is the index the track should end up at. */

@@ -443,4 +443,44 @@ export const migrations: Migration[] = [
       WHERE NOT EXISTS (SELECT 1 FROM radio_stations);
     `,
   },
+  {
+    id: '010_playlist_members',
+    sql: /* sql */ `
+      /*
+       * Who has been let into a playlist, and what they may do there.
+       *
+       * This replaces the old collaborative flag, which meant "any friend of
+       * mine can edit this" — one switch covering everyone, with no way to let
+       * one person listen and another person contribute. Membership is now
+       * named: a viewer can open and download it, a collaborator can also
+       * change what is in it.
+       *
+       * Visibility still decides who can find it at all; a member is an
+       * explicit grant on top, which is how somebody gets into a private list.
+       */
+      CREATE TABLE IF NOT EXISTS playlist_members (
+        playlist_id uuid NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+        user_id     uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        role        text NOT NULL DEFAULT 'viewer'
+                    CHECK (role IN ('viewer', 'collaborator')),
+        added_by    uuid REFERENCES users(id) ON DELETE SET NULL,
+        added_at    timestamptz NOT NULL DEFAULT now(),
+        PRIMARY KEY (playlist_id, user_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS playlist_members_user_idx
+        ON playlist_members (user_id);
+
+      /* An uploaded cover. Null falls back to the first track's album art. */
+      ALTER TABLE playlists ADD COLUMN IF NOT EXISTS cover_url text;
+
+      /*
+       * Anyone who had a collaborative playlist keeps it, but its friends have
+       * to be invited by name now. There is no honest automatic conversion:
+       * "all my friends" is not a list of people, and inventing one would hand
+       * out edit rights nobody asked for.
+       */
+      ALTER TABLE playlists DROP COLUMN IF EXISTS collaborative;
+    `,
+  },
 ];

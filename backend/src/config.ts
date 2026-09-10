@@ -70,6 +70,8 @@ export const config = {
   avatarDir: path.join(dataDir, 'avatars'),
   /** Largest profile picture accepted, in bytes. Animated GIFs get sizeable. */
   avatarMaxBytes: int('AVATAR_MAX_BYTES', 5 * 1024 * 1024),
+  /** Uploaded playlist covers, served back via /api/playlist-cover/:file. */
+  playlistCoverDir: path.join(dataDir, 'playlist-covers'),
   /**
    * Suggested audio waits here — deliberately outside MUSIC_ROOT, so a file
    * nobody has reviewed is never indexed, streamed or downloadable.

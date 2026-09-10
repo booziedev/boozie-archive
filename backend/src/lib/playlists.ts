@@ -16,6 +16,24 @@ import type { Track } from '../types.js';
 
 export type PlaylistVisibility = 'everyone' | 'friends' | 'private';
 
+/**
+ * What one invited person may do.
+ *
+ * A viewer can open the playlist and download it; a collaborator can also
+ * change what is in it. Neither can rename it or decide who else gets in —
+ * that stays with the owner.
+ */
+export type PlaylistRole = 'viewer' | 'collaborator';
+
+export interface PlaylistMember {
+  userId: string;
+  username: string;
+  displayName: string | null;
+  avatarUrl: string | null;
+  role: PlaylistRole;
+  addedAt: string;
+}
+
 export interface Playlist {
   id: string;
   ownerId: string;
@@ -24,18 +42,23 @@ export interface Playlist {
   name: string;
   description: string | null;
   visibility: PlaylistVisibility;
-  collaborative: boolean;
   kind: 'manual' | 'blend';
   blendWith: string | null;
   trackCount: number;
   duration: number;
-  /** Cover art comes from the first track that has an album. */
+  /** An uploaded cover, when there is one. */
+  coverUrl: string | null;
+  /** Otherwise cover art comes from the first track that has an album. */
   coverId: string | null;
+  /** How many people have been invited, so the UI can badge the button. */
+  memberCount: number;
   createdAt: string;
   updatedAt: string;
   /** What the viewer may do with it. */
   canEdit: boolean;
   isOwner: boolean;
+  /** The viewer's own role, when they were invited rather than an owner. */
+  role: PlaylistRole | null;
 }
 
 export interface PlaylistEntry {
@@ -65,23 +88,36 @@ interface PlaylistRow {
   name: string;
   description: string | null;
   visibility: PlaylistVisibility;
-  collaborative: boolean;
   kind: 'manual' | 'blend';
   blend_with: string | null;
+  cover_url: string | null;
   created_at: Date;
   updated_at: Date;
   track_count: string;
   duration: string | null;
   cover_id: string | null;
+  member_count: string;
+  /** The asking viewer's role, resolved by the query rather than a second trip. */
+  viewer_role: PlaylistRole | null;
 }
 
+/**
+ * Every read of a playlist goes through this.
+ *
+ * `$1` is always the viewer, so the row comes back already carrying their own
+ * membership — the permission checks below need it on every path, and fetching
+ * it separately turned one query into two on every list.
+ */
 const SELECT = /* sql */ `
   SELECT p.*, u.username AS owner_username, u.display_name AS owner_display_name,
          (SELECT count(*) FROM playlist_tracks t WHERE t.playlist_id = p.id)::text AS track_count,
          (SELECT COALESCE(sum(t.duration), 0) FROM playlist_tracks t WHERE t.playlist_id = p.id)::text AS duration,
          (SELECT t.album_id FROM playlist_tracks t
            WHERE t.playlist_id = p.id AND t.album_id IS NOT NULL
-           ORDER BY t.position LIMIT 1) AS cover_id
+           ORDER BY t.position LIMIT 1) AS cover_id,
+         (SELECT count(*) FROM playlist_members m WHERE m.playlist_id = p.id)::text AS member_count,
+         (SELECT m.role FROM playlist_members m
+           WHERE m.playlist_id = p.id AND m.user_id = $1::uuid) AS viewer_role
     FROM playlists p
     JOIN users u ON u.id = p.owner_id
 `;
@@ -95,16 +131,18 @@ function toPlaylist(row: PlaylistRow, viewerId: string, canEdit: boolean): Playl
     name: row.name,
     description: row.description,
     visibility: row.visibility,
-    collaborative: row.collaborative,
     kind: row.kind,
     blendWith: row.blend_with,
     trackCount: Number.parseInt(row.track_count, 10),
     duration: Number.parseFloat(row.duration ?? '0'),
+    coverUrl: row.cover_url,
     coverId: row.cover_id,
+    memberCount: Number.parseInt(row.member_count ?? '0', 10),
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
     canEdit,
     isOwner: row.owner_id === viewerId,
+    role: row.viewer_role,
   };
 }
 
@@ -119,11 +157,17 @@ function visibility(value: unknown): PlaylistVisibility {
   throw new AuthError('Unknown playlist visibility.', 400, 'invalid_playlist');
 }
 
-/** Can the viewer open it at all? */
+/**
+ * Can the viewer open it at all?
+ *
+ * Visibility decides who can *find* it; an invite is a grant on top of that,
+ * which is how somebody gets into a private list without it becoming public.
+ */
 export async function canView(viewerId: string, row: PlaylistRow): Promise<boolean> {
   if (row.owner_id === viewerId) return true;
   // A blend belongs to both people in it, whatever its visibility says.
   if (row.kind === 'blend' && row.blend_with === viewerId) return true;
+  if (row.viewer_role) return true;
   if (row.visibility === 'private') return false;
   if (row.visibility === 'everyone') return true;
   return (await friendStatusBetween(viewerId, row.owner_id)) === 'friends';
@@ -132,14 +176,14 @@ export async function canView(viewerId: string, row: PlaylistRow): Promise<boole
 /**
  * Can the viewer change what is in it?
  *
- * The owner always can. Friends can when it is marked collaborative — that is
- * what the flag means. A blend is generated, so nobody edits it by hand.
+ * The owner always can, and so can anyone invited as a collaborator. A viewer
+ * cannot, however they found the playlist — being able to see something is not
+ * permission to rewrite it. A blend is generated, so nobody edits it by hand.
  */
-async function canEditRow(viewerId: string, row: PlaylistRow): Promise<boolean> {
-  if (row.kind === 'blend') return false;
+function canEditRow(viewerId: string, row: PlaylistRow): boolean {
+  if (row.kind !== 'manual') return false;
   if (row.owner_id === viewerId) return true;
-  if (!row.collaborative) return false;
-  return (await friendStatusBetween(viewerId, row.owner_id)) === 'friends';
+  return row.viewer_role === 'collaborator';
 }
 
 /** Loads a playlist, refusing anything the viewer may not open. */
@@ -147,7 +191,7 @@ async function load(viewerId: string, playlistId: string): Promise<PlaylistRow> 
   if (!/^[0-9a-f-]{36}$/i.test(playlistId)) {
     throw new AuthError('No such playlist.', 404, 'not_found');
   }
-  const { rows } = await pool.query<PlaylistRow>(`${SELECT} WHERE p.id = $1`, [playlistId]);
+  const { rows } = await pool.query<PlaylistRow>(`${SELECT} WHERE p.id = $2`, [viewerId, playlistId]);
   const row = rows[0];
   // A playlist the viewer can't see answers the same as one that isn't there,
   // so ids can't be probed for existence.
@@ -159,31 +203,41 @@ async function load(viewerId: string, playlistId: string): Promise<PlaylistRow> 
 
 export async function getPlaylist(viewerId: string, playlistId: string) {
   const row = await load(viewerId, playlistId);
-  return toPlaylist(row, viewerId, await canEditRow(viewerId, row));
+  return toPlaylist(row, viewerId, canEditRow(viewerId, row));
 }
 
-/** Everything the viewer owns, plus what their friends have shared. */
-export async function listPlaylists(viewerId: string): Promise<Playlist[]> {
+/**
+ * Everything the viewer can open: their own, what they were invited to, and
+ * what friends have shared.
+ *
+ * `ownerId` narrows it to one person's playlists, for a profile page — the
+ * visibility rules are unchanged, so this only ever shows what that viewer
+ * could have found anyway.
+ */
+export async function listPlaylists(viewerId: string, ownerId?: string): Promise<Playlist[]> {
   const { rows } = await pool.query<PlaylistRow>(
     `${SELECT}
       LEFT JOIN friendships f
         ON least(f.requester_id, f.addressee_id) = least(p.owner_id, $1::uuid)
        AND greatest(f.requester_id, f.addressee_id) = greatest(p.owner_id, $1::uuid)
        AND f.status = 'accepted'
-      WHERE p.owner_id = $1
+      WHERE ($2::uuid IS NULL OR p.owner_id = $2)
+        AND (p.owner_id = $1
          OR p.blend_with = $1
+         OR EXISTS (SELECT 1 FROM playlist_members m
+                     WHERE m.playlist_id = p.id AND m.user_id = $1)
          OR p.visibility = 'everyone'
-         OR (p.visibility = 'friends' AND f.id IS NOT NULL)
+         OR (p.visibility = 'friends' AND f.id IS NOT NULL))
       ORDER BY p.updated_at DESC`,
-    [viewerId],
+    [viewerId, ownerId ?? null],
   );
 
-  return Promise.all(rows.map(async (row) => toPlaylist(row, viewerId, await canEditRow(viewerId, row))));
+  return rows.map((row) => toPlaylist(row, viewerId, canEditRow(viewerId, row)));
 }
 
 export async function createPlaylist(
   ownerId: string,
-  input: { name?: unknown; description?: unknown; visibility?: unknown; collaborative?: unknown },
+  input: { name?: unknown; description?: unknown; visibility?: unknown },
 ) {
   const { rows: mine } = await pool.query<{ count: string }>(
     "SELECT count(*)::text AS count FROM playlists WHERE owner_id = $1 AND kind = 'manual'",
@@ -194,14 +248,13 @@ export async function createPlaylist(
   }
 
   const { rows } = await pool.query<{ id: string }>(
-    `INSERT INTO playlists (owner_id, name, description, visibility, collaborative)
-     VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+    `INSERT INTO playlists (owner_id, name, description, visibility)
+     VALUES ($1, $2, $3, $4) RETURNING id`,
     [
       ownerId,
       name(input.name),
       typeof input.description === 'string' ? input.description.trim().slice(0, DESCRIPTION_LIMIT) || null : null,
       input.visibility === undefined ? 'friends' : visibility(input.visibility),
-      input.collaborative === true,
     ],
   );
   return getPlaylist(ownerId, rows[0]!.id);
@@ -210,11 +263,11 @@ export async function createPlaylist(
 export async function updatePlaylist(
   viewerId: string,
   playlistId: string,
-  input: { name?: unknown; description?: unknown; visibility?: unknown; collaborative?: unknown },
+  input: { name?: unknown; description?: unknown; visibility?: unknown },
 ) {
   const row = await load(viewerId, playlistId);
-  // Renaming and sharing are the owner's alone, even on a collaborative list:
-  // contributors add music, they don't decide who else sees it.
+  // Renaming and sharing are the owner's alone: a collaborator adds music,
+  // they don't decide who else sees it.
   if (row.owner_id !== viewerId) {
     throw new AuthError('Only the owner can change this playlist.', 403, 'not_owner');
   }
@@ -224,7 +277,6 @@ export async function updatePlaylist(
         SET name = COALESCE($2, name),
             description = CASE WHEN $3::boolean THEN $4 ELSE description END,
             visibility = COALESCE($5, visibility),
-            collaborative = COALESCE($6, collaborative),
             updated_at = now()
       WHERE id = $1`,
     [
@@ -233,7 +285,6 @@ export async function updatePlaylist(
       input.description !== undefined,
       typeof input.description === 'string' ? input.description.trim().slice(0, DESCRIPTION_LIMIT) || null : null,
       input.visibility === undefined ? null : visibility(input.visibility),
-      input.collaborative === undefined ? null : input.collaborative === true,
     ],
   );
   return getPlaylist(viewerId, playlistId);
@@ -284,7 +335,7 @@ export async function listEntries(viewerId: string, playlistId: string): Promise
 /** Requires edit rights, and returns the row so callers can read its shape. */
 async function loadEditable(viewerId: string, playlistId: string): Promise<PlaylistRow> {
   const row = await load(viewerId, playlistId);
-  if (!(await canEditRow(viewerId, row))) {
+  if (!canEditRow(viewerId, row)) {
     throw new AuthError(
       row.kind === 'blend'
         ? 'A blend is generated from what you both play — it cannot be edited.'
@@ -418,6 +469,131 @@ async function writeOrder(playlistId: string, order: string[]) {
 
 async function touch(playlistId: string) {
   await pool.query('UPDATE playlists SET updated_at = now() WHERE id = $1', [playlistId]);
+}
+
+// ----------------------------------------------------------------- members
+
+/**
+ * Who has been invited, and as what.
+ *
+ * Readable by anyone who can open the playlist — knowing who else is in a
+ * shared list is part of it being shared — but only the owner can change it.
+ */
+export async function listMembers(viewerId: string, playlistId: string): Promise<PlaylistMember[]> {
+  await load(viewerId, playlistId);
+
+  const { rows } = await pool.query<{
+    user_id: string;
+    username: string;
+    display_name: string | null;
+    avatar_url: string | null;
+    role: PlaylistRole;
+    added_at: Date;
+  }>(
+    `SELECT m.user_id, m.role, m.added_at, u.username, u.display_name, u.avatar_url
+       FROM playlist_members m
+       JOIN users u ON u.id = m.user_id
+      WHERE m.playlist_id = $1
+      ORDER BY m.added_at`,
+    [playlistId],
+  );
+
+  return rows.map((row) => ({
+    userId: row.user_id,
+    username: row.username,
+    displayName: row.display_name,
+    avatarUrl: row.avatar_url,
+    role: row.role,
+    addedAt: row.added_at.toISOString(),
+  }));
+}
+
+function role(value: unknown): PlaylistRole {
+  if (value === 'viewer' || value === 'collaborator') return value;
+  throw new AuthError('A member is either a viewer or a collaborator.', 400, 'invalid_role');
+}
+
+/** Only the owner decides who is in a playlist, and at what level. */
+async function loadOwned(viewerId: string, playlistId: string): Promise<PlaylistRow> {
+  const row = await load(viewerId, playlistId);
+  if (row.owner_id !== viewerId) {
+    throw new AuthError('Only the owner can change who is in this playlist.', 403, 'not_owner');
+  }
+  if (row.kind !== 'manual') {
+    throw new AuthError('This playlist is generated — it has no members to invite.', 400, 'not_manual');
+  }
+  return row;
+}
+
+/**
+ * Invites someone, or changes the role of someone already invited.
+ *
+ * Restricted to the owner's friends: this archive has no way to search
+ * strangers, and an invite is the one thing here that reaches into somebody
+ * else's library view.
+ */
+export async function setMember(
+  viewerId: string,
+  playlistId: string,
+  userId: string,
+  wanted: unknown,
+): Promise<PlaylistMember[]> {
+  await loadOwned(viewerId, playlistId);
+
+  if (userId === viewerId) {
+    throw new AuthError('You already own this playlist.', 400, 'invalid_member');
+  }
+  if (!/^[0-9a-f-]{36}$/i.test(userId)) {
+    throw new AuthError('No such account.', 404, 'not_found');
+  }
+  if ((await friendStatusBetween(viewerId, userId)) !== 'friends') {
+    throw new AuthError('You can only invite friends.', 403, 'not_friends');
+  }
+
+  await pool.query(
+    `INSERT INTO playlist_members (playlist_id, user_id, role, added_by)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (playlist_id, user_id) DO UPDATE SET role = EXCLUDED.role`,
+    [playlistId, userId, role(wanted), viewerId],
+  );
+
+  await touch(playlistId);
+  return listMembers(viewerId, playlistId);
+}
+
+export async function removeMember(
+  viewerId: string,
+  playlistId: string,
+  userId: string,
+): Promise<PlaylistMember[]> {
+  // The owner can remove anyone; anyone can show themselves out.
+  if (userId !== viewerId) await loadOwned(viewerId, playlistId);
+  else await load(viewerId, playlistId);
+
+  await pool.query('DELETE FROM playlist_members WHERE playlist_id = $1 AND user_id = $2', [
+    playlistId,
+    userId,
+  ]);
+  await touch(playlistId);
+  return userId === viewerId ? [] : listMembers(viewerId, playlistId);
+}
+
+// ------------------------------------------------------------------- cover
+
+/**
+ * Sets or clears the uploaded cover.
+ *
+ * Clearing falls back to the first track's album art, which is what a playlist
+ * shows until somebody chooses otherwise. The previous file is deleted only
+ * after the new URL is safely on the row.
+ */
+export async function setCover(viewerId: string, playlistId: string, coverUrl: string | null) {
+  const row = await loadOwned(viewerId, playlistId);
+  await pool.query('UPDATE playlists SET cover_url = $2, updated_at = now() WHERE id = $1', [
+    playlistId,
+    coverUrl,
+  ]);
+  return { playlist: await getPlaylist(viewerId, playlistId), previousCoverUrl: row.cover_url };
 }
 
 // ------------------------------------------------------------------- blend

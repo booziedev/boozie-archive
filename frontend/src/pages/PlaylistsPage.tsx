@@ -10,34 +10,48 @@ import { playlists as api } from '../lib/api';
 import { formatRuntime } from '../lib/format';
 import type { Playlist } from '../lib/types';
 
-/** One card in the grid. */
-function PlaylistCard({ playlist }: { playlist: Playlist }) {
+/** One card in the grid. Also used by the profile page's playlists section. */
+export function PlaylistCard({ playlist }: { playlist: Playlist }) {
   return (
     <Link to={`/playlists/${playlist.id}`} className="group block">
       <div className="relative">
-        <CoverImage
-          id={playlist.coverId ?? ''}
-          name={playlist.name}
-          size={320}
-          rounded="rounded-xl"
-          className="aspect-square w-full"
-        />
-        {playlist.visibility === 'private' && (
-          <span
-            title="Only you can see this"
-            className="absolute right-2 top-2 rounded-full bg-black/70 p-1.5 text-zinc-300 backdrop-blur"
-          >
-            <Lock size={12} />
-          </span>
+        {playlist.coverUrl ? (
+          <img
+            src={playlist.coverUrl}
+            alt=""
+            loading="lazy"
+            className="aspect-square w-full rounded-xl bg-ink-800 object-cover"
+          />
+        ) : (
+          <CoverImage
+            id={playlist.coverId ?? ''}
+            name={playlist.name}
+            size={320}
+            rounded="rounded-xl"
+            className="aspect-square w-full"
+          />
         )}
-        {playlist.collaborative && (
-          <span
-            title="Friends can add to this"
-            className="absolute right-2 top-2 rounded-full bg-black/70 p-1.5 text-accent-300 backdrop-blur"
-          >
-            <Users size={12} />
-          </span>
-        )}
+        {/* Both badges can apply at once — a private list shared with two
+            people — so they sit in a row rather than on top of each other. */}
+        <span className="absolute right-2 top-2 flex items-center gap-1">
+          {playlist.visibility === 'private' && (
+            <span
+              title="Only you and anyone you invite"
+              className="rounded-full bg-black/70 p-1.5 text-zinc-300 backdrop-blur"
+            >
+              <Lock size={12} />
+            </span>
+          )}
+          {playlist.memberCount > 0 && (
+            <span
+              title={`Shared with ${playlist.memberCount} ${playlist.memberCount === 1 ? 'person' : 'people'}`}
+              className="flex items-center gap-1 rounded-full bg-black/70 px-2 py-1 text-[10px] font-semibold text-accent-300 backdrop-blur"
+            >
+              <Users size={11} />
+              {playlist.memberCount}
+            </span>
+          )}
+        </span>
       </div>
       <p className="mt-2 truncate text-sm font-semibold text-zinc-100 transition-colors group-hover:text-white">
         {playlist.name}
@@ -59,7 +73,7 @@ export function PlaylistsPage() {
   const [name, setName] = useState('');
   const [creating, setCreating] = useState(false);
 
-  const query = useQuery({ queryKey: ['playlists'], queryFn: api.list });
+  const query = useQuery({ queryKey: ['playlists'], queryFn: () => api.list() });
 
   const create = useMutation({
     mutationFn: () => api.create({ name: name.trim() }),

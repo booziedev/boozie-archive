@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowDown,
   ArrowUp,
+  ImagePlus,
   ListMusic,
   Loader2,
   Play,
@@ -15,6 +16,7 @@ import {
 } from 'lucide-react';
 
 import { CoverImage } from '../components/CoverImage';
+import { PlaylistMembers } from '../components/PlaylistMembers';
 import { ShareButton } from '../components/ShareDialog';
 import { EmptyState } from '../components/states';
 import { playlists as api } from '../lib/api';
@@ -23,9 +25,9 @@ import { usePlayer } from '../context/PlayerContext';
 import type { PlaylistEntry, PlaylistVisibility, Track } from '../lib/types';
 
 const VISIBILITIES: { value: PlaylistVisibility; label: string; hint: string }[] = [
-  { value: 'everyone', label: 'Everyone', hint: 'Anyone with an account can open it.' },
-  { value: 'friends', label: 'Friends only', hint: 'Only people you have added.' },
-  { value: 'private', label: 'Only me', hint: 'Nobody else sees it.' },
+  { value: 'everyone', label: 'Public', hint: 'Anyone with an account here can open it.' },
+  { value: 'friends', label: 'Friends only', hint: 'Only people you have added as friends.' },
+  { value: 'private', label: 'Private', hint: 'Only you, and anyone you invite by name.' },
 ];
 
 /** The tracks that still resolve, in order — the ones that can be played. */
@@ -39,6 +41,8 @@ export function PlaylistPage() {
   const queryClient = useQueryClient();
   const { current, isPlaying, playTracks, toggle } = usePlayer();
   const [editing, setEditing] = useState(false);
+  const [membersOpen, setMembersOpen] = useState(false);
+  const coverInput = useRef<HTMLInputElement>(null);
   const [draft, setDraft] = useState({ name: '', description: '' });
 
   const query = useQuery({
@@ -75,6 +79,16 @@ export function PlaylistPage() {
 
   const refresh = useMutation({
     mutationFn: () => api.blend(otherMember, true),
+    onSuccess: invalidate,
+  });
+
+  const uploadCover = useMutation({
+    mutationFn: (file: File) => api.uploadCover(id, file),
+    onSuccess: invalidate,
+  });
+
+  const clearCover = useMutation({
+    mutationFn: () => api.clearCover(id),
     onSuccess: invalidate,
   });
 
@@ -121,13 +135,62 @@ export function PlaylistPage() {
   return (
     <div>
       <header className="mb-6 flex flex-col gap-5 sm:flex-row sm:items-end">
-        <CoverImage
-          id={playlist.coverId ?? ''}
-          name={playlist.name}
-          size={320}
-          rounded="rounded-2xl"
-          className="h-40 w-40 shrink-0 shadow-card"
-        />
+        <div className="group relative h-40 w-40 shrink-0">
+          {playlist.coverUrl ? (
+            <img
+              src={playlist.coverUrl}
+              alt=""
+              className="h-40 w-40 rounded-2xl bg-ink-800 object-cover shadow-card"
+            />
+          ) : (
+            <CoverImage
+              id={playlist.coverId ?? ''}
+              name={playlist.name}
+              size={320}
+              rounded="rounded-2xl"
+              className="h-40 w-40 shadow-card"
+            />
+          )}
+
+          {playlist.isOwner && playlist.kind === 'manual' && (
+            <>
+              <input
+                ref={coverInput}
+                type="file"
+                accept="image/png,image/jpeg,image/gif,image/webp"
+                className="hidden"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) uploadCover.mutate(file);
+                  event.target.value = '';
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => coverInput.current?.click()}
+                disabled={uploadCover.isPending}
+                className="absolute inset-0 flex flex-col items-center justify-center gap-1 rounded-2xl bg-black/60 text-xs font-semibold text-white opacity-0 transition-opacity focus:opacity-100 group-hover:opacity-100"
+              >
+                {uploadCover.isPending ? (
+                  <Loader2 size={18} className="animate-spin" />
+                ) : (
+                  <ImagePlus size={18} />
+                )}
+                {playlist.coverUrl ? 'Change cover' : 'Add a cover'}
+              </button>
+              {playlist.coverUrl && (
+                <button
+                  type="button"
+                  onClick={() => clearCover.mutate()}
+                  aria-label="Remove the cover"
+                  className="absolute -right-2 -top-2 rounded-full bg-ink-850 p-1.5 text-zinc-400 opacity-0 shadow-lift transition-opacity hover:text-red-400 focus:opacity-100 group-hover:opacity-100"
+                >
+                  <X size={13} />
+                </button>
+              )}
+            </>
+          )}
+        </div>
 
         <div className="min-w-0 flex-1">
           <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-accent-400">
@@ -198,10 +261,26 @@ export function PlaylistPage() {
                 <span>{formatRuntime(playlist.duration)}</span>
               </>
             )}
-            {playlist.collaborative && (
-              <span className="pill">
+            {playlist.kind === 'manual' && (playlist.isOwner || playlist.memberCount > 0) && (
+              <button
+                type="button"
+                onClick={() => setMembersOpen(true)}
+                title="Who this playlist is shared with"
+                className="pill transition-colors hover:border-white/20 hover:text-zinc-200"
+              >
                 <Users size={11} />
-                Collaborative
+                {playlist.memberCount === 0
+                  ? 'Share with a friend'
+                  : `${playlist.memberCount} invited`}
+              </button>
+            )}
+            {playlist.role && (
+              <span className="pill" title={
+                playlist.role === 'collaborator'
+                  ? 'You can add and remove tracks'
+                  : 'You can listen and download'
+              }>
+                {playlist.role === 'collaborator' ? 'Collaborator' : 'Viewer'}
               </span>
             )}
           </p>
@@ -301,15 +380,10 @@ export function PlaylistPage() {
             </div>
           </div>
 
-          <label className="flex cursor-pointer items-center gap-2 text-sm text-zinc-300">
-            <input
-              type="checkbox"
-              checked={playlist.collaborative}
-              onChange={(event) => update.mutate({ collaborative: event.target.checked })}
-              className="h-4 w-4 accent-accent-500"
-            />
-            Let friends add tracks
-          </label>
+          <p className="max-w-xs text-xs leading-relaxed text-zinc-500">
+            Visibility decides who can find it. To let one person in — or let them edit —
+            invite them by name from <span className="text-zinc-400">Share with a friend</span>.
+          </p>
         </div>
       )}
 
@@ -414,6 +488,8 @@ export function PlaylistPage() {
           })}
         </div>
       )}
+
+      {membersOpen && <PlaylistMembers playlist={playlist} onClose={() => setMembersOpen(false)} />}
 
       {missing > 0 && (
         <p className="mt-3 text-xs text-zinc-600">

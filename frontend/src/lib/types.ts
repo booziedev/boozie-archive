@@ -406,6 +406,17 @@ export interface Recap {
 /** A playlist, as the API returns it. */
 export type PlaylistVisibility = 'everyone' | 'friends' | 'private';
 
+export type PlaylistRole = 'viewer' | 'collaborator';
+
+export interface PlaylistMember {
+  userId: string;
+  username: string;
+  displayName: string | null;
+  avatarUrl: string | null;
+  role: PlaylistRole;
+  addedAt: string;
+}
+
 export interface Playlist {
   id: string;
   ownerId: string;
@@ -414,17 +425,21 @@ export interface Playlist {
   name: string;
   description: string | null;
   visibility: PlaylistVisibility;
-  collaborative: boolean;
   kind: 'manual' | 'blend';
   blendWith: string | null;
   trackCount: number;
   duration: number;
+  /** An uploaded cover; otherwise coverId's album art is used. */
+  coverUrl: string | null;
   coverId: string | null;
+  memberCount: number;
   createdAt: string;
   updatedAt: string;
   /** What this viewer may do with it. */
   canEdit: boolean;
   isOwner: boolean;
+  /** Their role, when they were invited rather than owning it. */
+  role: PlaylistRole | null;
 }
 
 export interface PlaylistEntry {

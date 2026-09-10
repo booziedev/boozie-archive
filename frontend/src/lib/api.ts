@@ -24,6 +24,8 @@ import type {
   PlayRecord,
   Playlist,
   PlaylistEntry,
+  PlaylistMember,
+  PlaylistRole,
   PlaylistVisibility,
   PrivacySettings,
   PublicProfile,
@@ -367,26 +369,50 @@ export const history = {
  * guess what changed — the track count and cover move as tracks are added.
  */
 export const playlists = {
-  list: () => request<{ playlists: Playlist[] }>('/api/playlists'),
+  list: (ownerId?: string) =>
+    request<{ playlists: Playlist[] }>(
+      ownerId ? `/api/playlists?owner=${encodeURIComponent(ownerId)}` : '/api/playlists',
+    ),
   get: (id: string) =>
     request<{ playlist: Playlist; entries: PlaylistEntry[] }>(
       `/api/playlists/${encodeURIComponent(id)}`,
     ),
-  create: (input: {
-    name: string;
-    description?: string | null;
-    visibility?: PlaylistVisibility;
-    collaborative?: boolean;
-  }) => jsonRequest<{ playlist: Playlist }>('/api/playlists', 'POST', input),
+  create: (input: { name: string; description?: string | null; visibility?: PlaylistVisibility }) =>
+    jsonRequest<{ playlist: Playlist }>('/api/playlists', 'POST', input),
   update: (
     id: string,
-    input: {
-      name?: string;
-      description?: string | null;
-      visibility?: PlaylistVisibility;
-      collaborative?: boolean;
-    },
+    input: { name?: string; description?: string | null; visibility?: PlaylistVisibility },
   ) => jsonRequest<{ playlist: Playlist }>(`/api/playlists/${encodeURIComponent(id)}`, 'PATCH', input),
+
+  members: (id: string) =>
+    request<{ members: PlaylistMember[] }>(`/api/playlists/${encodeURIComponent(id)}/members`),
+  setMember: (id: string, userId: string, role: PlaylistRole) =>
+    jsonRequest<{ members: PlaylistMember[] }>(
+      `/api/playlists/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`,
+      'PUT',
+      { role },
+    ),
+  removeMember: (id: string, userId: string) =>
+    jsonRequest<{ members: PlaylistMember[] }>(
+      `/api/playlists/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`,
+      'DELETE',
+    ),
+
+  /**
+   * Multipart, so no JSON content type here — the browser sets its own
+   * boundary — but the CSRF marker still goes along, as on every other write.
+   */
+  uploadCover: (id: string, file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return request<{ playlist: Playlist }>(`/api/playlists/${encodeURIComponent(id)}/cover`, {
+      method: 'POST',
+      headers: { 'X-Requested-With': 'boozie-archive' },
+      body: form,
+    });
+  },
+  clearCover: (id: string) =>
+    jsonRequest<{ playlist: Playlist }>(`/api/playlists/${encodeURIComponent(id)}/cover`, 'DELETE'),
   remove: (id: string) =>
     jsonRequest<{ ok: true }>(`/api/playlists/${encodeURIComponent(id)}`, 'DELETE'),
   /**

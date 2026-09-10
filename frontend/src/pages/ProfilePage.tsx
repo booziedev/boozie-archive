@@ -17,6 +17,7 @@ import { ListeningNow } from '../components/ListeningNow';
 import { PageHeader } from '../components/PageHeader';
 import { ErrorState } from '../components/states';
 import { playlists, social } from '../lib/api';
+import { PlaylistCard } from './PlaylistsPage';
 import { useAuth } from '../context/AuthContext';
 import { usePresence } from '../context/PresenceContext';
 import { formatDate } from '../lib/format';
@@ -61,13 +62,16 @@ export function ProfilePage() {
   }
 
   return isSelf ? (
-    <ProfileEditor
-      profile={profile}
-      onSaved={() => {
-        void queryClient.invalidateQueries({ queryKey: ['profile'] });
-        void queryClient.invalidateQueries({ queryKey: ['friends'] });
-      }}
-    />
+    <div className="max-w-2xl space-y-6">
+      <ProfileEditor
+        profile={profile}
+        onSaved={() => {
+          void queryClient.invalidateQueries({ queryKey: ['profile'] });
+          void queryClient.invalidateQueries({ queryKey: ['friends'] });
+        }}
+      />
+      <ProfilePlaylists profile={profile} isSelf />
+    </div>
   ) : (
     <OtherProfile profile={profile} />
   );
@@ -150,7 +154,7 @@ function ProfileEditor({ profile, onSaved }: { profile: PublicProfile; onSaved: 
   const preview: PublicProfile = { ...profile, displayName, avatarUrl, bio };
 
   return (
-    <div className="max-w-2xl space-y-6">
+    <div className="space-y-6">
       <PageHeader title="Your profile" subtitle="How you appear to other people in the archive." />
 
       {/*
@@ -273,6 +277,46 @@ function ProfileEditor({ profile, onSaved }: { profile: PublicProfile; onSaved: 
   );
 }
 
+/**
+ * The playlists on somebody's profile.
+ *
+ * Filtered by the same rules as everywhere else, so this only ever shows what
+ * the viewer could already have found: public lists, friends-only ones when
+ * they are friends, and anything they were invited to by name. On your own
+ * profile it is simply all of yours.
+ */
+function ProfilePlaylists({ profile, isSelf }: { profile: PublicProfile; isSelf: boolean }) {
+  const query = useQuery({
+    queryKey: ['playlists', 'owner', profile.id],
+    queryFn: () => playlists.list(profile.id),
+  });
+
+  const found = query.data?.playlists ?? [];
+  // A generated list is private to the people in it and would read oddly on a
+  // profile, so only hand-made ones are shown here.
+  const visible = found.filter((playlist) => playlist.kind === 'manual');
+
+  if (query.isLoading || visible.length === 0) return null;
+
+  return (
+    <section className="surface p-6">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <h2 className="text-base font-bold uppercase tracking-[0.14em] text-zinc-300">Playlists</h2>
+        {isSelf && (
+          <Link to="/playlists" className="text-xs text-zinc-500 transition-colors hover:text-zinc-300">
+            Manage
+          </Link>
+        )}
+      </div>
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+        {visible.slice(0, 6).map((playlist) => (
+          <PlaylistCard key={playlist.id} playlist={playlist} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function OtherProfile({ profile }: { profile: PublicProfile }) {
   const queryClient = useQueryClient();
   const { statusOf } = usePresence();
@@ -362,6 +406,8 @@ function OtherProfile({ profile }: { profile: PublicProfile }) {
 
         {error && <p className="relative mt-3 text-xs text-red-400">{error}</p>}
       </section>
+
+      <ProfilePlaylists profile={profile} isSelf={false} />
     </div>
   );
 }

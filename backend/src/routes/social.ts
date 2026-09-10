@@ -4,7 +4,7 @@ import fsp from 'node:fs/promises';
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 
 import { config } from '../config.js';
-import { deleteAvatarFile, resolveAvatarFile, storeAvatar } from '../lib/avatars.js';
+import { deleteImageFile, resolveImageFile, storeImage } from '../lib/images.js';
 import {
   acceptFriendRequest,
   currentAvatarUrl,
@@ -63,7 +63,7 @@ export const socialRoutes: FastifyPluginAsync = async (app: FastifyInstance) => 
    */
   app.get('/avatar/:file', async (request, reply) => {
     const { file } = request.params as { file: string };
-    const resolved = resolveAvatarFile(file);
+    const resolved = resolveImageFile('avatar', file);
     if (!resolved) return reply.code(404).send({ error: 'Not found' });
 
     let stat: fs.Stats;
@@ -103,18 +103,18 @@ export const socialRoutes: FastifyPluginAsync = async (app: FastifyInstance) => 
     }
 
     const previous = await currentAvatarUrl(request.user!.id);
-    const stored = await storeAvatar(buffer);
+    const stored = await storeImage('avatar', buffer);
     const { profile } = { profile: await updateProfile(request.user!.id, { avatarUrl: stored.url }) };
 
     // Only once the new one is safely on the account.
-    await deleteAvatarFile(previous).catch(() => undefined);
+    await deleteImageFile(previous).catch(() => undefined);
     return reply.code(201).send({ profile });
   });
 
   app.delete('/profile/me/avatar', async (request) => {
     const previous = await currentAvatarUrl(request.user!.id);
     const profile = await updateProfile(request.user!.id, { avatarUrl: null });
-    await deleteAvatarFile(previous).catch(() => undefined);
+    await deleteImageFile(previous).catch(() => undefined);
     return { profile };
   });
 

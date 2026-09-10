@@ -177,6 +177,7 @@ async function main() {
     '/api/parties',
     '/api/history',
     '/api/playlists',
+    '/api/playlist-cover/',
     '/api/radio',
     '/api/suggestions',
     '/api/stickers/',

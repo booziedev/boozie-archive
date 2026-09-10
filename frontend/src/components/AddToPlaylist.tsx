@@ -30,7 +30,7 @@ export function AddToPlaylist({
 
   const listQuery = useQuery({
     queryKey: ['playlists'],
-    queryFn: playlists.list,
+    queryFn: () => playlists.list(),
     enabled: open,
     staleTime: 30 * 1000,
   });
