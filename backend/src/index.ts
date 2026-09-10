@@ -19,6 +19,7 @@ import { historyRoutes } from './routes/history.js';
 import { mediaRoutes } from './routes/media.js';
 import { playlistRoutes } from './routes/playlists.js';
 import { presenceRoutes } from './routes/presence.js';
+import { radioRoutes } from './routes/radio.js';
 import { socialRoutes } from './routes/social.js';
 import { stickerRoutes } from './routes/stickers.js';
 import { suggestionRoutes } from './routes/suggestions.js';
@@ -176,6 +177,7 @@ async function main() {
     '/api/parties',
     '/api/history',
     '/api/playlists',
+    '/api/radio',
     '/api/suggestions',
     '/api/stickers/',
   ];
@@ -284,6 +286,7 @@ async function main() {
     await app.register(presenceRoutes, { prefix: '/api' });
     await app.register(historyRoutes, { prefix: '/api' });
     await app.register(playlistRoutes, { prefix: '/api' });
+    await app.register(radioRoutes, { prefix: '/api' });
     await app.register(stickerRoutes, { prefix: '/api' });
     await app.register(suggestionRoutes, { prefix: '/api' });
   }

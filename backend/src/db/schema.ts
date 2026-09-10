@@ -396,4 +396,51 @@ export const migrations: Migration[] = [
         ON playlist_tracks (playlist_id, position);
     `,
   },
+  {
+    id: '009_radio',
+    sql: /* sql */ `
+      /*
+       * Internet radio stations.
+       *
+       * Curated rather than mirrored: an admin adds a station and everyone
+       * sees it. There is no per-user list, and nothing here is derived from
+       * the library index — a station is a URL that plays forever, not a file.
+       */
+      CREATE TABLE IF NOT EXISTS radio_stations (
+        id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        name         text NOT NULL,
+        stream_url   text NOT NULL,
+        homepage_url text,
+        favicon_url  text,
+        /* What the stream said it was when it was added, for the badge. */
+        codec        text,
+        bitrate      integer,
+        country      text,
+        tags         text[] NOT NULL DEFAULT '{}',
+        /* Hand-ordered by the admin; ties fall back to the name. */
+        sort_order   integer NOT NULL DEFAULT 0,
+        disabled     boolean NOT NULL DEFAULT false,
+        added_by     uuid REFERENCES users(id) ON DELETE SET NULL,
+        created_at   timestamptz NOT NULL DEFAULT now(),
+        updated_at   timestamptz NOT NULL DEFAULT now()
+      );
+
+      -- The same stream added twice would be two tiles playing the same thing.
+      CREATE UNIQUE INDEX IF NOT EXISTS radio_stations_url_key
+        ON radio_stations (stream_url);
+
+      CREATE INDEX IF NOT EXISTS radio_stations_order_idx
+        ON radio_stations (sort_order, name);
+
+      /*
+       * One example station, so a fresh install has something to press.
+       * Only on an empty table — deleting it should not bring it back.
+       */
+      INSERT INTO radio_stations (name, stream_url, homepage_url, codec, bitrate, country, tags)
+      SELECT 'Willy', 'https://audio-streaming.willy.radio/willy.mp3',
+             'https://www.willy.radio/', 'MP3', 128, 'Belgium',
+             ARRAY['rock', 'pop', 'belgian']
+      WHERE NOT EXISTS (SELECT 1 FROM radio_stations);
+    `,
+  },
 ];

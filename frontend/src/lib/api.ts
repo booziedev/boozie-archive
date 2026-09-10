@@ -31,6 +31,9 @@ import type {
   SearchResults,
   SiteSettings,
   SortKey,
+  Station,
+  StationProbe,
+  DirectoryStation,
   StickerProviders,
   Suggestion,
   ThreadSummary,
@@ -414,6 +417,33 @@ export const playlists = {
     ),
 };
 
+/**
+ * Radio.
+ *
+ * Listing and playing are open to any account; everything that changes the
+ * list is refused for anyone but an admin, server-side.
+ */
+export const radio = {
+  list: () => request<{ stations: Station[] }>('/api/radio'),
+  create: (input: {
+    streamUrl: string;
+    name?: string;
+    homepageUrl?: string | null;
+    faviconUrl?: string | null;
+    country?: string | null;
+    tags?: string[] | string;
+  }) => jsonRequest<{ station: Station }>('/api/radio', 'POST', input),
+  update: (
+    id: string,
+    input: { name?: string; streamUrl?: string; country?: string | null; tags?: string[]; disabled?: boolean },
+  ) => jsonRequest<{ station: Station }>(`/api/radio/${encodeURIComponent(id)}`, 'PATCH', input),
+  remove: (id: string) => jsonRequest<{ ok: true }>(`/api/radio/${encodeURIComponent(id)}`, 'DELETE'),
+  probe: (streamUrl: string) =>
+    jsonRequest<{ probe: StationProbe }>('/api/radio/probe', 'POST', { streamUrl }),
+  search: (q: string) =>
+    request<{ results: DirectoryStation[] }>(`/api/radio/search?q=${encodeURIComponent(q)}`),
+};
+
 /** What the player reports when a track has been listened to. */
 export interface PlayInput {
   trackId: string;
@@ -464,7 +494,17 @@ export const api = {
 
 /** Media URLs are used directly by <audio>/<img>, so they are plain strings. */
 export const mediaUrl = {
-  stream: (trackId: string) => apiUrl(`/api/stream/${encodeURIComponent(trackId)}`),
+  /**
+   * Where to point the audio element.
+   *
+   * A radio id resolves to the relay rather than the library, so every caller
+   * — the player, the crossfade preload, the download link — gets the right
+   * URL without having to know which kind of thing it is holding.
+   */
+  stream: (trackId: string) =>
+    trackId.startsWith('rd_')
+      ? apiUrl(`/api/radio/${encodeURIComponent(trackId)}/stream`)
+      : apiUrl(`/api/stream/${encodeURIComponent(trackId)}`),
   download: (trackId: string) => apiUrl(`/api/download/${encodeURIComponent(trackId)}`),
   cover: (id: string, size: 128 | 320 | 640 = 320) =>
     apiUrl(`/api/cover/${encodeURIComponent(id)}?size=${size}`),

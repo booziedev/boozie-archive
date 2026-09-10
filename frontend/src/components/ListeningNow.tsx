@@ -1,5 +1,7 @@
 import { Link } from 'react-router-dom';
+import { Radio } from 'lucide-react';
 
+import { isRadioId } from '../lib/radio';
 import type { NowPlaying } from '../lib/types';
 
 /**
@@ -40,6 +42,27 @@ export function ListeningNow({
 }) {
   if (!now) return null;
 
+  const classes = `flex min-w-0 items-center gap-1.5 text-xs ${className}`;
+
+  /*
+   * Radio says the station and stops there.
+   *
+   * A station does broadcast the current song, but reading it means asking the
+   * stream to interleave metadata into the audio and unpicking it again — and
+   * "Listening to WILLY" is the useful part anyway.
+   */
+  if (isRadioId(now.trackId)) {
+    return (
+      <Link to="/radio" title={now.title} className={`${classes} transition-colors hover:text-accent-300`}>
+        <Radio size={12} className="shrink-0 text-accent-400" />
+        <span className="min-w-0 truncate">
+          {!compact && <span className="text-zinc-500">Listening to </span>}
+          <span className="font-medium text-zinc-300">{now.title}</span>
+        </span>
+      </Link>
+    );
+  }
+
   const label = `${now.title} — ${now.artist}`;
   const body = (
     <>
@@ -51,8 +74,6 @@ export function ListeningNow({
       </span>
     </>
   );
-
-  const classes = `flex min-w-0 items-center gap-1.5 text-xs ${className}`;
 
   return now.albumId ? (
     <Link

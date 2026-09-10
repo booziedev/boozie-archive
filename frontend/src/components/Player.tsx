@@ -7,6 +7,7 @@ import {
   Loader2,
   Pause,
   Play,
+  Radio as RadioIcon,
   Repeat,
   Repeat1,
   Shuffle,
@@ -23,6 +24,7 @@ import { ListenAlongPeers } from './ListenAlongPeers';
 import { SleepTimer } from './SleepTimer';
 import { QueuePanel } from './QueuePanel';
 import { SeekBar } from './SeekBar';
+import { isRadio } from '../lib/radio';
 import { mediaUrl } from '../lib/api';
 import { formatDuration, qualityLabel } from '../lib/format';
 import { usePlayer } from '../context/PlayerContext';
@@ -57,6 +59,33 @@ export function Player() {
   if (!current) return null;
 
   const effectiveDuration = duration || current.duration || 0;
+  // A station has no length and no past: there is nothing to scrub through,
+  // and nothing before or after it in the queue.
+  const live = isRadio(current);
+
+  /**
+   * Artwork for whatever is loaded.
+   *
+   * A station has no album to derive a cover from, so it gets the same tile
+   * the radio page uses rather than two letters of its country name.
+   */
+  const artwork = (className: string, iconSize: number) =>
+    live ? (
+      <span
+        className={`flex items-center justify-center bg-gradient-to-br from-accent-500/25 to-ink-800 ${className}`}
+      >
+        <RadioIcon size={iconSize} className="text-accent-300" />
+      </span>
+    ) : (
+      <CoverImage
+        id={coverId}
+        name={current.album}
+        size={iconSize > 40 ? 640 : 128}
+        eager={iconSize > 40}
+        rounded=""
+        className={className}
+      />
+    );
   const coverId = current.coverId ?? current.albumId;
 
   const transport = (size: 'sm' | 'lg') => (
@@ -67,8 +96,8 @@ export function Player() {
         aria-pressed={shuffle}
         // While following, the host's queue is the queue: shuffling or skipping
         // would only be undone by the next sync tick.
-        disabled={isFollowing}
-        title={isFollowing ? 'The host controls the queue' : 'Shuffle'}
+        disabled={isFollowing || live}
+        title={isFollowing ? 'The host controls the queue' : live ? 'Live radio' : 'Shuffle'}
         className={`icon-btn ${size === 'lg' ? '' : 'hidden sm:inline-flex'} ${
           shuffle ? 'text-accent-400 hover:text-accent-300' : ''
         }`}
@@ -79,8 +108,8 @@ export function Player() {
       <button
         type="button"
         onClick={player.previous}
-        disabled={isFollowing}
-        title={isFollowing ? 'The host controls the queue' : 'Previous'}
+        disabled={isFollowing || live}
+        title={isFollowing ? 'The host controls the queue' : live ? 'Live radio' : 'Previous'}
         className="icon-btn"
       >
         <SkipBack size={size === 'lg' ? 26 : 19} className="fill-current" />
@@ -106,8 +135,8 @@ export function Player() {
       <button
         type="button"
         onClick={player.next}
-        disabled={isFollowing}
-        title={isFollowing ? 'The host controls the queue' : 'Next'}
+        disabled={isFollowing || live}
+        title={isFollowing ? 'The host controls the queue' : live ? 'Live radio' : 'Next'}
         className="icon-btn"
       >
         <SkipForward size={size === 'lg' ? 26 : 19} className="fill-current" />
@@ -117,8 +146,8 @@ export function Player() {
         type="button"
         onClick={player.cycleRepeat}
         aria-pressed={repeat !== 'off'}
-        disabled={isFollowing}
-        title={isFollowing ? 'The host controls the queue' : `Repeat: ${repeat}`}
+        disabled={isFollowing || live}
+        title={isFollowing ? 'The host controls the queue' : live ? 'Live radio' : `Repeat: ${repeat}`}
         className={`icon-btn ${size === 'lg' ? '' : 'hidden sm:inline-flex'} ${
           repeat !== 'off' ? 'text-accent-400 hover:text-accent-300' : ''
         }`}
@@ -128,7 +157,22 @@ export function Player() {
     </div>
   );
 
-  const progress = (
+  const progress = live ? (
+    /* Radio: how long you have been listening, and a badge where the bar
+       would be. A disabled slider would only invite people to drag it. */
+    <div className="flex w-full items-center gap-2.5">
+      <span className="w-10 shrink-0 text-right text-[11px] tabular-nums text-zinc-500">
+        {formatDuration(currentTime)}
+      </span>
+      <span className="flex flex-1 items-center gap-2">
+        <span className="h-[3px] flex-1 rounded-full bg-gradient-to-r from-accent-500/60 to-transparent" />
+        <span className="flex items-center gap-1 rounded-md bg-red-500/15 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-red-300">
+          <span className="h-1.5 w-1.5 rounded-full bg-red-400" />
+          Live
+        </span>
+      </span>
+    </div>
+  ) : (
     <div className="flex w-full items-center gap-2.5">
       <span className="w-10 shrink-0 text-right text-[11px] tabular-nums text-zinc-500">
         {formatDuration(currentTime)}
@@ -179,27 +223,24 @@ export function Player() {
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col justify-center gap-6 px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
-          <CoverImage
-            id={coverId}
-            name={current.album}
-            size={640}
-            eager
-            rounded="rounded-3xl"
-            className="mx-auto aspect-square w-full max-w-sm shadow-lift"
-          />
+          {artwork('mx-auto aspect-square w-full max-w-sm rounded-3xl shadow-lift', 96)}
 
           <div className="space-y-1.5 text-center">
             <h2 className="truncate text-xl font-bold text-white">{current.title}</h2>
-            <Link
-              to={`/artists/${current.artistId}`}
-              onClick={() => setExpanded(false)}
-              className="block truncate text-sm text-zinc-400 hover:text-zinc-200"
-            >
-              {current.artist}
-            </Link>
+            {live ? (
+              <p className="block truncate text-sm text-zinc-400">{current.album}</p>
+            ) : (
+              <Link
+                to={`/artists/${current.artistId}`}
+                onClick={() => setExpanded(false)}
+                className="block truncate text-sm text-zinc-400 hover:text-zinc-200"
+              >
+                {current.artist}
+              </Link>
+            )}
             <div className="flex items-center justify-center gap-2 pt-1">
-              <span className="pill">{qualityLabel(current)}</span>
-              {current.year && <span className="pill">{current.year}</span>}
+              <span className="pill">{live ? (current.codec ?? 'Live') : qualityLabel(current)}</span>
+              {!live && current.year && <span className="pill">{current.year}</span>}
             </div>
           </div>
 
@@ -210,15 +251,19 @@ export function Player() {
           <div className="flex items-center justify-center gap-2">
             <ListenAlongPeers />
             <SleepTimer />
-            <FavoriteButton kind="track" id={current.id} label={current.title} />
-            <a
-              href={mediaUrl.download(current.id)}
-              download
-              className="icon-btn"
-              aria-label={`Download ${current.title}`}
-            >
-              <Download size={19} />
-            </a>
+            {!live && (
+              <>
+                <FavoriteButton kind="track" id={current.id} label={current.title} />
+                <a
+                  href={mediaUrl.download(current.id)}
+                  download
+                  className="icon-btn"
+                  aria-label={`Download ${current.title}`}
+                >
+                  <Download size={19} />
+                </a>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -251,13 +296,7 @@ export function Player() {
             onClick={() => setExpanded(true)}
             className="flex min-w-0 flex-1 items-center gap-3 text-left lg:w-72 lg:flex-none lg:cursor-default"
           >
-            <CoverImage
-              id={coverId}
-              name={current.album}
-              size={128}
-              rounded="rounded-lg"
-              className="h-12 w-12 shrink-0 shadow-card"
-            />
+            {artwork('h-12 w-12 shrink-0 rounded-lg shadow-card', 20)}
             <span className="min-w-0 flex-1">
               <span className="block truncate text-sm font-semibold text-zinc-100">
                 {current.title}
@@ -270,7 +309,7 @@ export function Player() {
           <ListenAlongPeers />
 
           <div className="hidden lg:block">
-            <FavoriteButton kind="track" id={current.id} label={current.title} size={17} />
+            {!live && <FavoriteButton kind="track" id={current.id} label={current.title} size={17} />}
           </div>
 
           {/* Centre column: transport + seek (desktop) */}
@@ -304,14 +343,16 @@ export function Player() {
               ariaLabel="Volume"
               className="w-24"
             />
-            <a
-              href={mediaUrl.download(current.id)}
-              download
-              className="icon-btn"
-              aria-label={`Download ${current.title}`}
-            >
-              <Download size={18} />
-            </a>
+            {!live && (
+              <a
+                href={mediaUrl.download(current.id)}
+                download
+                className="icon-btn"
+                aria-label={`Download ${current.title}`}
+              >
+                <Download size={18} />
+              </a>
+            )}
             <SleepTimer />
             <button
               type="button"

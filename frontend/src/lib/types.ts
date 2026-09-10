@@ -440,3 +440,41 @@ export interface PlaylistEntry {
   /** null when the id no longer resolves — the file was renamed or removed. */
   track: Track | null;
 }
+
+/** An internet radio station. Curated by an admin, shared with everyone. */
+export interface Station {
+  id: string;
+  name: string;
+  streamUrl: string;
+  homepageUrl: string | null;
+  faviconUrl: string | null;
+  codec: string | null;
+  bitrate: number | null;
+  country: string | null;
+  tags: string[];
+  sortOrder: number;
+  disabled: boolean;
+  createdAt: string;
+}
+
+/** What the server found when it opened a stream URL. */
+export interface StationProbe {
+  streamUrl: string;
+  name: string | null;
+  codec: string | null;
+  bitrate: number | null;
+  contentType: string;
+}
+
+/** A hit from the Radio Browser directory, ready to be added. */
+export interface DirectoryStation {
+  name: string;
+  streamUrl: string;
+  homepageUrl: string | null;
+  faviconUrl: string | null;
+  codec: string | null;
+  bitrate: number | null;
+  country: string | null;
+  tags: string[];
+  votes: number;
+}

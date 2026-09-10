@@ -56,6 +56,15 @@ export function cleanPlay(raw: unknown): PlayInput | null {
 
   const trackId = label(value.trackId, 64);
   if (!trackId || !ID_SHAPE.test(trackId)) return null;
+  /*
+   * Radio never enters the log.
+   *
+   * A station has no duration and plays for hours, so it would dominate every
+   * count it touched and poison the things built on them — top played, the
+   * recap, Blend and the wrapped lists. The player already skips reporting it;
+   * this is the half that a hand-written request cannot get around.
+   */
+  if (trackId.startsWith('rd_')) return null;
 
   const title = label(value.title, 200);
   const artist = label(value.artist, 200);

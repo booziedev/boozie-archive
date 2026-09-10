@@ -19,6 +19,7 @@ import { HomePage } from './pages/HomePage';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { PlaylistPage } from './pages/PlaylistPage';
 import { PlaylistsPage } from './pages/PlaylistsPage';
+import { RadioPage } from './pages/RadioPage';
 import { SearchPage } from './pages/SearchPage';
 import { RecapPage } from './pages/RecapPage';
 import { SettingsPage } from './pages/SettingsPage';
@@ -124,6 +125,7 @@ export function App() {
           <Route path="/albums/:id" element={<AlbumPage />} />
           <Route path="/tracks" element={<TracksPage />} />
           <Route path="/search" element={<SearchPage />} />
+          <Route path="/radio" element={<RadioPage />} />
           <Route path="/playlists" element={<PlaylistsPage />} />
           <Route path="/playlists/:id" element={<PlaylistPage />} />
           <Route path="/favourites" element={<FavouritesPage />} />

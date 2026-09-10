@@ -27,6 +27,7 @@ import {
   type AudioSettings,
 } from '../lib/audioSettings';
 import { mediaCrossOrigin } from '../lib/config';
+import { isRadio } from '../lib/radio';
 import { useAuth } from './AuthContext';
 import type { Track } from '../lib/types';
 
@@ -439,6 +440,15 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const logPlay = useCallback(
     (track: Track | null, completed: boolean) => {
       if (!track || !user || loggedRef.current) return;
+      /*
+       * Radio is never logged.
+       *
+       * A station plays for hours and has no duration, so it would swamp every
+       * count built on the log — top played, the recap, Blend, the wrapped
+       * lists. The server refuses an `rd_` id as well; this just saves the
+       * round trip.
+       */
+      if (isRadio(track)) return;
       loggedRef.current = true;
       void history
         .record({
