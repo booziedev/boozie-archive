@@ -13,11 +13,12 @@ import {
   listMembers,
   isGenerator,
   openAllWrapped,
-  openBlend,
   openWrapped,
   removeMember,
+  savePlaylist,
   setCover,
   setMember,
+  unsavePlaylist,
   listPlaylists,
   moveTrack,
   removeTrack,
@@ -32,26 +33,32 @@ import {
  * change, so there is nothing here to talk it out of.
  */
 export const playlistRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
-  /** `?owner=` narrows it to one person's, for a profile page. */
+  /**
+   * The caller's library: what they own plus what they have saved.
+   * `?owner=` switches to one person's playlists, for a profile page.
+   */
   app.get('/playlists', async (request) => {
     const { owner } = request.query as { owner?: string };
     return { playlists: await listPlaylists(request.user!.id, owner || undefined) };
   });
 
-  /**
-   * The blend this account shares with one friend, built on first ask and
-   * refreshed when it has gone stale. `?refresh=1` rebuilds it now.
-   */
-  app.post('/playlists/blend/:friendId', async (request) => {
-    const { friendId } = request.params as { friendId: string };
-    const { refresh } = request.query as { refresh?: string };
-    return openBlend(request.user!.id, friendId, refresh === '1');
+  /** Keeps somebody else's playlist in your library, or takes it back out. */
+  app.put('/playlists/:id/save', async (request) => {
+    const { id } = request.params as { id: string };
+    return { playlist: await savePlaylist(request.user!.id, id) };
+  });
+
+  app.delete('/playlists/:id/save', async (request) => {
+    const { id } = request.params as { id: string };
+    return { playlist: await unsavePlaylist(request.user!.id, id) };
   });
 
   /**
    * The generated "your listening" lists, built on first ask and refreshed
    * when they go stale. Always the caller's own — there is no way to ask for
    * somebody else's, because the play log they come from is private.
+   *
+   * Declared before `/playlists/:id` so the static segment wins the match.
    */
   app.get('/playlists/wrapped', async (request) => ({
     wrapped: await openAllWrapped(request.user!.id),

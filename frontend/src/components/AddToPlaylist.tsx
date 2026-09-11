@@ -9,7 +9,8 @@ import type { Playlist } from '../lib/types';
  * "Add to playlist" — a small menu of the playlists this account may write to.
  *
  * Only editable lists are offered: your own, plus a friend's collaborative
- * ones. Blends never appear, since they are generated rather than curated.
+ * ones. Generated lists never appear, since they are rebuilt from the play
+ * log rather than curated.
  */
 export function AddToPlaylist({
   trackIds,

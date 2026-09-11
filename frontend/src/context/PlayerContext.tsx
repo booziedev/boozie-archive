@@ -444,7 +444,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
        * Radio is never logged.
        *
        * A station plays for hours and has no duration, so it would swamp every
-       * count built on the log — top played, the recap, Blend, the wrapped
+       * count built on the log — top played, the recap and the wrapped
        * lists. The server refuses an `rd_` id as well; this just saves the
        * round trip.
        */

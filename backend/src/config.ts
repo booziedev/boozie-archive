@@ -72,6 +72,8 @@ export const config = {
   avatarMaxBytes: int('AVATAR_MAX_BYTES', 5 * 1024 * 1024),
   /** Uploaded playlist covers, served back via /api/playlist-cover/:file. */
   playlistCoverDir: path.join(dataDir, 'playlist-covers'),
+  /** Uploaded radio station art, served back via /api/station-cover/:file. */
+  stationCoverDir: path.join(dataDir, 'station-covers'),
   /**
    * Suggested audio waits here — deliberately outside MUSIC_ROOT, so a file
    * nobody has reviewed is never indexed, streamed or downloadable.

@@ -20,7 +20,7 @@ export type PlaylistVisibility = 'everyone' | 'friends' | 'private';
  * A playlist is either hand-made or generated. Generated ones are rebuilt from
  * the play log, which is why nobody edits their tracks.
  */
-export type PlaylistKind = 'manual' | 'blend' | 'wrapped';
+export type PlaylistKind = 'manual' | 'wrapped';
 
 /**
  * What one invited person may do.
@@ -49,7 +49,6 @@ export interface Playlist {
   description: string | null;
   visibility: PlaylistVisibility;
   kind: PlaylistKind;
-  blendWith: string | null;
   trackCount: number;
   duration: number;
   /** An uploaded cover, when there is one. */
@@ -67,6 +66,8 @@ export interface Playlist {
   isOwner: boolean;
   /** The viewer's own role, when they were invited rather than an owner. */
   role: PlaylistRole | null;
+  /** Whether the viewer has kept this playlist in their library. */
+  saved: boolean;
 }
 
 export interface PlaylistEntry {
@@ -97,7 +98,6 @@ interface PlaylistRow {
   description: string | null;
   visibility: PlaylistVisibility;
   kind: PlaylistKind;
-  blend_with: string | null;
   cover_url: string | null;
   generator: string | null;
   created_at: Date;
@@ -108,6 +108,7 @@ interface PlaylistRow {
   member_count: string;
   /** The asking viewer's role, resolved by the query rather than a second trip. */
   viewer_role: PlaylistRole | null;
+  viewer_saved: boolean;
 }
 
 /**
@@ -126,7 +127,9 @@ const SELECT = /* sql */ `
            ORDER BY t.position LIMIT 1) AS cover_id,
          (SELECT count(*) FROM playlist_members m WHERE m.playlist_id = p.id)::text AS member_count,
          (SELECT m.role FROM playlist_members m
-           WHERE m.playlist_id = p.id AND m.user_id = $1::uuid) AS viewer_role
+           WHERE m.playlist_id = p.id AND m.user_id = $1::uuid) AS viewer_role,
+         EXISTS (SELECT 1 FROM playlist_saves s
+                  WHERE s.playlist_id = p.id AND s.user_id = $1::uuid) AS viewer_saved
     FROM playlists p
     JOIN users u ON u.id = p.owner_id
 `;
@@ -141,7 +144,6 @@ function toPlaylist(row: PlaylistRow, viewerId: string, canEdit: boolean): Playl
     description: row.description,
     visibility: row.visibility,
     kind: row.kind,
-    blendWith: row.blend_with,
     trackCount: Number.parseInt(row.track_count, 10),
     duration: Number.parseFloat(row.duration ?? '0'),
     coverUrl: row.cover_url,
@@ -153,6 +155,7 @@ function toPlaylist(row: PlaylistRow, viewerId: string, canEdit: boolean): Playl
     canEdit,
     isOwner: row.owner_id === viewerId,
     role: row.viewer_role,
+    saved: row.viewer_saved,
   };
 }
 
@@ -175,8 +178,6 @@ function visibility(value: unknown): PlaylistVisibility {
  */
 export async function canView(viewerId: string, row: PlaylistRow): Promise<boolean> {
   if (row.owner_id === viewerId) return true;
-  // A blend belongs to both people in it, whatever its visibility says.
-  if (row.kind === 'blend' && row.blend_with === viewerId) return true;
   if (row.viewer_role) return true;
   if (row.visibility === 'private') return false;
   if (row.visibility === 'everyone') return true;
@@ -188,7 +189,8 @@ export async function canView(viewerId: string, row: PlaylistRow): Promise<boole
  *
  * The owner always can, and so can anyone invited as a collaborator. A viewer
  * cannot, however they found the playlist — being able to see something is not
- * permission to rewrite it. A blend is generated, so nobody edits it by hand.
+ * permission to rewrite it. A generated list is rebuilt from the play log, so
+ * nobody edits it by hand.
  */
 function canEditRow(viewerId: string, row: PlaylistRow): boolean {
   if (row.kind !== 'manual') return false;
@@ -217,37 +219,88 @@ export async function getPlaylist(viewerId: string, playlistId: string) {
 }
 
 /**
- * Everything the viewer can open: their own, what they were invited to, and
- * what friends have shared.
+ * The viewer's library: what they own, plus what they have kept.
  *
- * `ownerId` narrows it to one person's playlists, for a profile page — the
- * visibility rules are unchanged, so this only ever shows what that viewer
- * could have found anyway.
+ * Nothing lands here on its own. A playlist being public, or friends-only and
+ * made by a friend, means the viewer *can open* it — not that it belongs in
+ * their library. They put it there by saving it, and can take it out again.
+ *
+ * `ownerId` switches this to "that person's playlists, as far as this viewer is
+ * allowed to see them", which is what a profile page shows and how somebody
+ * finds a playlist worth saving in the first place.
  */
 export async function listPlaylists(viewerId: string, ownerId?: string): Promise<Playlist[]> {
-  const { rows } = await pool.query<PlaylistRow>(
-    `${SELECT}
-      LEFT JOIN friendships f
-        ON least(f.requester_id, f.addressee_id) = least(p.owner_id, $1::uuid)
-       AND greatest(f.requester_id, f.addressee_id) = greatest(p.owner_id, $1::uuid)
-       AND f.status = 'accepted'
-      WHERE ($2::uuid IS NULL OR p.owner_id = $2)
-        -- A generated list with nothing in it yet (no listening in that
-        -- window) is not worth a card. The row stays so its refresh timing
-        -- and its place in the year survive.
-        AND (p.kind <> 'wrapped'
-             OR EXISTS (SELECT 1 FROM playlist_tracks t WHERE t.playlist_id = p.id))
-        AND (p.owner_id = $1
-         OR p.blend_with = $1
-         OR EXISTS (SELECT 1 FROM playlist_members m
-                     WHERE m.playlist_id = p.id AND m.user_id = $1)
-         OR p.visibility = 'everyone'
-         OR (p.visibility = 'friends' AND f.id IS NOT NULL))
-      ORDER BY p.updated_at DESC`,
-    [viewerId, ownerId ?? null],
-  );
+  const { rows } = ownerId
+    ? await pool.query<PlaylistRow>(
+        `${SELECT}
+          LEFT JOIN friendships f
+            ON least(f.requester_id, f.addressee_id) = least(p.owner_id, $1::uuid)
+           AND greatest(f.requester_id, f.addressee_id) = greatest(p.owner_id, $1::uuid)
+           AND f.status = 'accepted'
+          WHERE p.owner_id = $2
+            AND (p.kind <> 'wrapped'
+                 OR EXISTS (SELECT 1 FROM playlist_tracks t WHERE t.playlist_id = p.id))
+            AND (p.owner_id = $1
+             OR EXISTS (SELECT 1 FROM playlist_members m
+                         WHERE m.playlist_id = p.id AND m.user_id = $1)
+             OR p.visibility = 'everyone'
+             OR (p.visibility = 'friends' AND f.id IS NOT NULL))
+          ORDER BY p.updated_at DESC`,
+        [viewerId, ownerId],
+      )
+    : await pool.query<PlaylistRow>(
+        `${SELECT}
+          LEFT JOIN friendships f
+            ON least(f.requester_id, f.addressee_id) = least(p.owner_id, $1::uuid)
+           AND greatest(f.requester_id, f.addressee_id) = greatest(p.owner_id, $1::uuid)
+           AND f.status = 'accepted'
+          WHERE (p.kind <> 'wrapped'
+                 OR EXISTS (SELECT 1 FROM playlist_tracks t WHERE t.playlist_id = p.id))
+            AND (p.owner_id = $1
+             -- A saved playlist still has to be one the viewer may open: an
+             -- owner who turns it private takes it out of everybody's library
+             -- rather than leaving a card that 404s. The save itself is kept,
+             -- so it reappears if they open it up again.
+             OR (EXISTS (SELECT 1 FROM playlist_saves s
+                          WHERE s.playlist_id = p.id AND s.user_id = $1)
+                 AND (p.visibility = 'everyone'
+                   OR EXISTS (SELECT 1 FROM playlist_members m
+                               WHERE m.playlist_id = p.id AND m.user_id = $1)
+                   OR (p.visibility = 'friends' AND f.id IS NOT NULL))))
+          ORDER BY p.updated_at DESC`,
+        [viewerId],
+      );
 
   return rows.map((row) => toPlaylist(row, viewerId, canEditRow(viewerId, row)));
+}
+
+/**
+ * Keeps a playlist in the viewer's library.
+ *
+ * Requires being able to open it, so saving cannot be used to pin something
+ * that was never shared — and an owner saving their own changes nothing, since
+ * their playlists are in their library already.
+ */
+export async function savePlaylist(viewerId: string, playlistId: string) {
+  const row = await load(viewerId, playlistId);
+  if (row.owner_id === viewerId) {
+    throw new AuthError('This is already your playlist.', 400, 'own_playlist');
+  }
+  await pool.query(
+    `INSERT INTO playlist_saves (user_id, playlist_id) VALUES ($1, $2)
+     ON CONFLICT DO NOTHING`,
+    [viewerId, playlistId],
+  );
+  return getPlaylist(viewerId, playlistId);
+}
+
+/** Takes it back out. Silent when it was not saved — the end state is the same. */
+export async function unsavePlaylist(viewerId: string, playlistId: string) {
+  await pool.query('DELETE FROM playlist_saves WHERE user_id = $1 AND playlist_id = $2', [
+    viewerId,
+    playlistId,
+  ]);
+  return getPlaylist(viewerId, playlistId);
 }
 
 export async function createPlaylist(
@@ -352,8 +405,8 @@ async function loadEditable(viewerId: string, playlistId: string): Promise<Playl
   const row = await load(viewerId, playlistId);
   if (!canEditRow(viewerId, row)) {
     throw new AuthError(
-      row.kind === 'blend'
-        ? 'A blend is generated from what you both play — it cannot be edited.'
+      row.kind !== 'manual'
+        ? 'This playlist is built from your listening — it cannot be edited by hand.'
         : "You don't have permission to change this playlist.",
       403,
       'not_editable',
@@ -611,29 +664,13 @@ export async function setCover(viewerId: string, playlistId: string, coverUrl: s
   return { playlist: await getPlaylist(viewerId, playlistId), previousCoverUrl: row.cover_url };
 }
 
-// ------------------------------------------------------------------- blend
-
-/**
- * Blend: one generated playlist per pair of friends.
- *
- * It is built from what both people actually played, so it needs no taste
- * model and no catalogue beyond this one — the archive is small enough that
- * two friends' listening genuinely overlaps.
- *
- * The list is rebuilt in place rather than recreated, so its URL survives a
- * refresh and a share sent last week still opens the current version.
- */
+// ------------------------------------------------------- generated playlists
 
 /** Fixed window fragments. Never built from anything a request supplies. */
 const LAST_180_DAYS = "played_at > now() - interval '180 days'";
 const LAST_30_DAYS = "played_at > now() - interval '30 days'";
 const THIS_YEAR = "date_part('year', played_at) = date_part('year', now())";
 const LAST_YEAR = "date_part('year', played_at) = date_part('year', now()) - 1";
-
-/** How many tracks a blend holds. Long enough for an evening. */
-const BLEND_SIZE = 40;
-/** Refreshed at most this often, unless someone asks for it. */
-const BLEND_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 
 interface Candidate {
   trackId: string;
@@ -642,8 +679,6 @@ interface Candidate {
   album: string | null;
   albumId: string | null;
   plays: number;
-  /** Whether the other person has played it too. */
-  shared: boolean;
 }
 
 /**
@@ -681,38 +716,6 @@ async function topTracks(userId: string, limit: number, window = LAST_180_DAYS) 
   }));
 }
 
-/**
- * Picks the blend's tracks.
- *
- * Anything both people play goes in first — that is the part of a blend worth
- * having. The rest alternates between the two so neither taste dominates, and
- * only tracks the library can still resolve are kept.
- */
-async function blendTracks(aId: string, bId: string): Promise<Candidate[]> {
-  const [a, b] = await Promise.all([
-    topTracks(aId, BLEND_SIZE * 2),
-    topTracks(bId, BLEND_SIZE * 2),
-  ]);
-
-  const bIds = new Set(b.map((track) => track.trackId));
-  const aIds = new Set(a.map((track) => track.trackId));
-
-  const both = a
-    .filter((track) => bIds.has(track.trackId))
-    .map((track) => ({ ...track, shared: true }));
-
-  const onlyA = a.filter((track) => !bIds.has(track.trackId)).map((t) => ({ ...t, shared: false }));
-  const onlyB = b.filter((track) => !aIds.has(track.trackId)).map((t) => ({ ...t, shared: false }));
-
-  const picked: Candidate[] = [...both];
-  for (let i = 0; picked.length < BLEND_SIZE && (i < onlyA.length || i < onlyB.length); i += 1) {
-    if (onlyA[i]) picked.push(onlyA[i]!);
-    if (picked.length < BLEND_SIZE && onlyB[i]) picked.push(onlyB[i]!);
-  }
-
-  return picked.filter((track) => library.getTrack(track.trackId)).slice(0, BLEND_SIZE);
-}
-
 /** Replaces a generated playlist's contents in one transaction, so it is never half-built. */
 async function fillGenerated(playlistId: string, tracks: Candidate[]) {
   const client = await pool.connect();
@@ -745,90 +748,6 @@ async function fillGenerated(playlistId: string, tracks: Candidate[]) {
   } finally {
     client.release();
   }
-}
-
-/**
- * Opens the blend two friends share, building or refreshing it as needed.
- *
- * Either of them may ask for it and both get the same playlist — the unique
- * index on the ordered pair is what guarantees that, rather than a check that
- * two simultaneous requests could both pass.
- */
-export async function openBlend(viewerId: string, otherId: string, force = false) {
-  if (viewerId === otherId) {
-    throw new AuthError('A blend needs two people.', 400, 'invalid_blend');
-  }
-  // Checked before it reaches a uuid column, so a malformed id is a 404 rather
-  // than a database error.
-  if (!/^[0-9a-f-]{36}$/i.test(otherId)) {
-    throw new AuthError('No such account.', 404, 'not_found');
-  }
-  if ((await friendStatusBetween(viewerId, otherId)) !== 'friends') {
-    throw new AuthError('You can only blend with a friend.', 403, 'not_friends');
-  }
-
-  const { rows: names } = await pool.query<{ id: string; username: string; display_name: string | null }>(
-    'SELECT id, username, display_name FROM users WHERE id = ANY($1::uuid[])',
-    [[viewerId, otherId]],
-  );
-  const nameOf = (id: string) => {
-    const row = names.find((entry) => entry.id === id);
-    return row ? row.display_name || row.username : 'Someone';
-  };
-
-  // The pair is ordered so both sides land on the same row.
-  const [low, high] = viewerId < otherId ? [viewerId, otherId] : [otherId, viewerId];
-
-  const { rows: found } = await pool.query<{ id: string; updated_at: Date }>(
-    `SELECT id, updated_at FROM playlists
-      WHERE kind = 'blend'
-        AND least(owner_id, blend_with) = $1
-        AND greatest(owner_id, blend_with) = $2`,
-    [low, high],
-  );
-
-  let playlistId = found[0]?.id;
-  let fresh = false;
-
-  if (!playlistId) {
-    const { rows } = await pool.query<{ id: string }>(
-      `INSERT INTO playlists (owner_id, blend_with, name, description, visibility, kind)
-       VALUES ($1, $2, $3, $4, 'private', 'blend')
-       ON CONFLICT DO NOTHING
-       RETURNING id`,
-      [
-        low,
-        high,
-        `${nameOf(low)} + ${nameOf(high)}`,
-        'Built from what you have both been playing.',
-      ],
-    );
-    playlistId = rows[0]?.id;
-
-    // Lost the race with the other person's request: theirs is the one to use.
-    if (!playlistId) {
-      const { rows: raced } = await pool.query<{ id: string }>(
-        `SELECT id FROM playlists
-          WHERE kind = 'blend'
-            AND least(owner_id, blend_with) = $1
-            AND greatest(owner_id, blend_with) = $2`,
-        [low, high],
-      );
-      playlistId = raced[0]!.id;
-    } else {
-      fresh = true;
-    }
-  }
-
-  const age = found[0] ? Date.now() - found[0].updated_at.getTime() : Infinity;
-  if (fresh || force || age > BLEND_MAX_AGE_MS) {
-    await fillGenerated(playlistId, await blendTracks(low, high));
-  }
-
-  return {
-    playlist: await getPlaylist(viewerId, playlistId),
-    entries: await listEntries(viewerId, playlistId),
-  };
 }
 
 // ----------------------------------------------------------------- wrapped
@@ -950,9 +869,7 @@ export async function openWrapped(userId: string, generator: Generator, force = 
     const tracks = await topTracks(userId, spec.size, spec.window);
     await fillGenerated(
       playlistId,
-      tracks
-        .map((track) => ({ ...track, shared: false }))
-        .filter((track) => library.getTrack(track.trackId)),
+      tracks.filter((track) => library.getTrack(track.trackId)),
     );
   }
 

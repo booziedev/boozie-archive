@@ -11,21 +11,31 @@ import { useAuth } from '../context/AuthContext';
 import { usePlayer } from '../context/PlayerContext';
 import type { Station } from '../lib/types';
 
-/** A coloured tile, so a station without a logo still looks like something. */
+/**
+ * A coloured tile, so a station without a logo still looks like something.
+ *
+ * Artwork an admin uploaded wins, then whatever logo the directory supplied —
+ * a remote URL that can rot, hence the fallback — and then the generated tile.
+ */
 function StationArt({ station, size = 'card' }: { station: Station; size?: 'card' | 'row' }) {
   const [failed, setFailed] = useState(false);
   // Same trick the library covers use: a stable hue derived from the name.
   const hue = [...station.name].reduce((total, char) => total + char.charCodeAt(0), 0) % 360;
+  const art = station.coverUrl ?? station.faviconUrl;
 
-  if (station.faviconUrl && !failed) {
+  if (art && !failed) {
     return (
       <img
-        src={station.faviconUrl}
+        src={art}
         alt=""
         loading="lazy"
         referrerPolicy="no-referrer"
         onError={() => setFailed(true)}
-        className={`${size === 'card' ? 'aspect-square w-full' : 'h-12 w-12'} rounded-xl bg-white/5 object-contain p-2`}
+        className={`${size === 'card' ? 'aspect-square w-full' : 'h-12 w-12'} rounded-xl bg-white/5 ${
+          // An uploaded cover is meant to fill the tile; a favicon is a logo
+          // that would look wrong cropped, so it gets breathing room instead.
+          station.coverUrl ? 'object-cover' : 'object-contain p-2'
+        }`}
       />
     );
   }

@@ -6,7 +6,7 @@ import { config } from '../config.js';
 import { AuthError } from './auth.js';
 
 /**
- * Uploaded images — profile pictures and playlist covers.
+ * Uploaded images — profile pictures, playlist covers and station artwork.
  *
  * Trusting the browser's Content-Type would let anyone store an HTML or SVG
  * file that later executes in a viewer's origin, so the format is decided by
@@ -15,12 +15,12 @@ import { AuthError } from './auth.js';
  * derived from user input — and served back with a fixed Content-Type and
  * `nosniff`, so what goes in is exactly what comes out.
  *
- * One store, two kinds. They differ only in which directory they land in and
+ * One store, three kinds. They differ only in which directory they land in and
  * which path serves them; everything that makes this safe is shared, which is
- * the point of not writing it twice.
+ * the point of not writing it three times.
  */
 
-export type ImageKind = 'avatar' | 'cover';
+export type ImageKind = 'avatar' | 'cover' | 'station';
 
 interface KindConfig {
   dir: string;
@@ -42,6 +42,12 @@ const KINDS: Record<ImageKind, KindConfig> = {
     prefix: '/api/playlist-cover/',
     maxBytes: config.avatarMaxBytes,
     label: 'Playlist covers',
+  },
+  station: {
+    dir: config.stationCoverDir,
+    prefix: '/api/station-cover/',
+    maxBytes: config.avatarMaxBytes,
+    label: 'Station artwork',
   },
 };
 

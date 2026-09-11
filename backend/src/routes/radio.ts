@@ -1,14 +1,18 @@
+import fs from 'node:fs';
+import fsp from 'node:fs/promises';
 import { Readable } from 'node:stream';
 
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 
 import { AuthError } from '../lib/auth.js';
+import { deleteImageFile, maxBytesFor, resolveImageFile, storeImage } from '../lib/images.js';
 import {
   createStation,
   deleteStation,
   listStations,
   probe,
   searchDirectory,
+  setStationCover,
   streamUrlFor,
   updateStation,
 } from '../lib/radio.js';
@@ -106,6 +110,67 @@ export const radioRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
     assertAdmin(request);
     const { id } = request.params as { id: string };
     return { station: await updateStation(id, (request.body ?? {}) as never) };
+  });
+
+  /**
+   * Station artwork.
+   *
+   * Served to anyone signed in rather than gated further: the filename is 32
+   * random hex characters that appear nowhere but on the station itself, and
+   * the station list is visible to every account anyway.
+   */
+  app.get('/station-cover/:file', async (request, reply) => {
+    const { file } = request.params as { file: string };
+    const resolved = resolveImageFile('station', file);
+    if (!resolved) return reply.code(404).send({ error: 'Not found' });
+
+    let stat: fs.Stats;
+    try {
+      stat = await fsp.stat(resolved.path);
+    } catch {
+      return reply.code(404).send({ error: 'Not found' });
+    }
+
+    return reply
+      .header('Content-Type', resolved.mime)
+      .header('Content-Length', stat.size)
+      .header('Content-Disposition', 'inline')
+      .header('X-Content-Type-Options', 'nosniff')
+      // A new upload is a new random name, so this can be cached hard.
+      .header('Cache-Control', 'public, max-age=31536000, immutable')
+      .send(fs.createReadStream(resolved.path));
+  });
+
+  app.post('/radio/:id/cover', async (request, reply) => {
+    assertAdmin(request);
+    const { id } = request.params as { id: string };
+    const limit = maxBytesFor('station');
+
+    const upload = await request.file({ limits: { fileSize: limit, files: 1 } });
+    if (!upload) return reply.code(400).send({ error: 'No image was uploaded.' });
+
+    let buffer: Buffer;
+    try {
+      buffer = await upload.toBuffer();
+    } catch {
+      return reply
+        .code(413)
+        .send({ error: `Station artwork must be under ${Math.round(limit / 1024 / 1024)} MB.` });
+    }
+
+    // Stored first, so a failed write never clears the art that is there.
+    const stored = await storeImage('station', buffer);
+    const { station, previousCoverUrl } = await setStationCover(id, stored.url);
+    await deleteImageFile(previousCoverUrl).catch(() => undefined);
+    return reply.code(201).send({ station });
+  });
+
+  app.delete('/radio/:id/cover', async (request) => {
+    assertAdmin(request);
+    const { id } = request.params as { id: string };
+    const { station, previousCoverUrl } = await setStationCover(id, null);
+    await deleteImageFile(previousCoverUrl).catch(() => undefined);
+    return { station };
   });
 
   app.delete('/radio/:id', async (request) => {

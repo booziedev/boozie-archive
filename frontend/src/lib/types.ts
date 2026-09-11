@@ -427,8 +427,7 @@ export interface Playlist {
   name: string;
   description: string | null;
   visibility: PlaylistVisibility;
-  kind: 'manual' | 'blend' | 'wrapped';
-  blendWith: string | null;
+  kind: 'manual' | 'wrapped';
   /** Which generator built it, when it was generated. */
   generator: 'top_year' | 'on_repeat' | 'time_capsule' | null;
   trackCount: number;
@@ -444,6 +443,8 @@ export interface Playlist {
   isOwner: boolean;
   /** Their role, when they were invited rather than owning it. */
   role: PlaylistRole | null;
+  /** Whether they have kept it in their library. */
+  saved: boolean;
 }
 
 export interface PlaylistEntry {
@@ -467,6 +468,8 @@ export interface Station {
   streamUrl: string;
   homepageUrl: string | null;
   faviconUrl: string | null;
+  /** Artwork an admin uploaded; wins over the directory's favicon. */
+  coverUrl: string | null;
   codec: string | null;
   bitrate: number | null;
   country: string | null;

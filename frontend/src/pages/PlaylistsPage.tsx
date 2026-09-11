@@ -85,16 +85,15 @@ export function PlaylistsPage() {
   });
 
   const all = query.data?.playlists ?? [];
-  // A blend belongs to both people in it, so it sits with yours whichever
-  // side of the pair happens to own the row.
-  const mine = all.filter((playlist) => playlist.isOwner || playlist.kind === 'blend');
-  const shared = all.filter((playlist) => !playlist.isOwner && playlist.kind !== 'blend');
+  const mine = all.filter((playlist) => playlist.isOwner);
+  // Kept, rather than merely reachable — nothing lands here without being saved.
+  const saved = all.filter((playlist) => !playlist.isOwner);
 
   return (
     <div>
       <PageHeader
         title="Playlists"
-        subtitle="Yours, plus anything your friends have shared."
+        subtitle="Yours, plus the ones you have saved."
         actions={
           !creating && (
             <button type="button" onClick={() => setCreating(true)} className="btn-primary">
@@ -165,13 +164,13 @@ export function PlaylistsPage() {
             </div>
           )}
 
-          {shared.length > 0 && (
+          {saved.length > 0 && (
             <div>
               <h2 className="mb-4 text-base font-bold uppercase tracking-[0.14em] text-zinc-300">
-                From friends
+                Saved
               </h2>
               <div className="card-grid">
-                {shared.map((playlist) => (
+                {saved.map((playlist) => (
                   <div key={playlist.id}>
                     <PlaylistCard playlist={playlist} />
                     <p className="truncate text-[11px] text-zinc-600">

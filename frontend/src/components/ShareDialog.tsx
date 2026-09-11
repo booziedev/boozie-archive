@@ -159,6 +159,9 @@ export function ShareButton({
         }}
         className={className || 'btn-ghost'}
         title="Share with a friend"
+        // Icon-only leaves the button with nothing to announce, so the label
+        // moves to aria-label rather than disappearing.
+        aria-label={label ? undefined : 'Share with a friend'}
       >
         <Share2 size={15} />
         {label}

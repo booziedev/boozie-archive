@@ -402,6 +402,12 @@ export const playlists = {
     input: { name?: string; description?: string | null; visibility?: PlaylistVisibility },
   ) => jsonRequest<{ playlist: Playlist }>(`/api/playlists/${encodeURIComponent(id)}`, 'PATCH', input),
 
+  /** Keep somebody else's playlist in your library, or take it back out. */
+  save: (id: string) =>
+    jsonRequest<{ playlist: Playlist }>(`/api/playlists/${encodeURIComponent(id)}/save`, 'PUT'),
+  unsave: (id: string) =>
+    jsonRequest<{ playlist: Playlist }>(`/api/playlists/${encodeURIComponent(id)}/save`, 'DELETE'),
+
   members: (id: string) =>
     request<{ members: PlaylistMember[] }>(`/api/playlists/${encodeURIComponent(id)}/members`),
   setMember: (id: string, userId: string, role: PlaylistRole) =>
@@ -444,15 +450,6 @@ export const playlists = {
       'POST',
     ),
 
-  /**
-   * Opens the blend shared with one friend, building it if it does not exist.
-   * `refresh` rebuilds it now instead of waiting for it to go stale.
-   */
-  blend: (friendId: string, refresh = false) =>
-    jsonRequest<{ playlist: Playlist; entries: PlaylistEntry[] }>(
-      `/api/playlists/blend/${encodeURIComponent(friendId)}${refresh ? '?refresh=1' : ''}`,
-      'POST',
-    ),
   addTracks: (id: string, trackIds: string[]) =>
     jsonRequest<{ added: number; skipped: number; playlist: Playlist }>(
       `/api/playlists/${encodeURIComponent(id)}/tracks`,
@@ -495,6 +492,18 @@ export const radio = {
   remove: (id: string) => jsonRequest<{ ok: true }>(`/api/radio/${encodeURIComponent(id)}`, 'DELETE'),
   probe: (streamUrl: string) =>
     jsonRequest<{ probe: StationProbe }>('/api/radio/probe', 'POST', { streamUrl }),
+  /** Multipart, so the browser sets its own boundary; CSRF marker still goes. */
+  uploadCover: (id: string, file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return request<{ station: Station }>(`/api/radio/${encodeURIComponent(id)}/cover`, {
+      method: 'POST',
+      headers: { 'X-Requested-With': 'boozie-archive' },
+      body: form,
+    });
+  },
+  clearCover: (id: string) =>
+    jsonRequest<{ station: Station }>(`/api/radio/${encodeURIComponent(id)}/cover`, 'DELETE'),
   search: (q: string) =>
     request<{ results: DirectoryStation[] }>(`/api/radio/search?q=${encodeURIComponent(q)}`),
 };

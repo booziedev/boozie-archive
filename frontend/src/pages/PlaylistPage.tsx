@@ -1,35 +1,31 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowDown,
   ArrowUp,
   Download,
-  ImagePlus,
   ListMusic,
   Loader2,
+  Lock,
+  Pencil,
   Play,
   RefreshCw,
   Shuffle,
-  Trash2,
   Users,
   X,
 } from 'lucide-react';
 
 import { CoverImage } from '../components/CoverImage';
+import { PlaylistEditor } from '../components/PlaylistEditor';
 import { PlaylistMembers } from '../components/PlaylistMembers';
+import { SavePlaylistButton } from '../components/SavePlaylistButton';
 import { ShareButton } from '../components/ShareDialog';
 import { EmptyState } from '../components/states';
 import { mediaUrl, playlists as api } from '../lib/api';
 import { formatBytes, formatDuration, formatRuntime } from '../lib/format';
 import { usePlayer } from '../context/PlayerContext';
-import type { PlaylistEntry, PlaylistVisibility, Track } from '../lib/types';
-
-const VISIBILITIES: { value: PlaylistVisibility; label: string; hint: string }[] = [
-  { value: 'everyone', label: 'Public', hint: 'Anyone with an account here can open it.' },
-  { value: 'friends', label: 'Friends only', hint: 'Only people you have added as friends.' },
-  { value: 'private', label: 'Private', hint: 'Only you, and anyone you invite by name.' },
-];
+import type { PlaylistEntry, Track } from '../lib/types';
 
 /** The tracks that still resolve, in order — the ones that can be played. */
 function playable(entries: PlaylistEntry[]): Track[] {
@@ -43,8 +39,6 @@ export function PlaylistPage() {
   const { current, isPlaying, playTracks, toggle } = usePlayer();
   const [editing, setEditing] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
-  const coverInput = useRef<HTMLInputElement>(null);
-  const [draft, setDraft] = useState({ name: '', description: '' });
 
   const query = useQuery({
     queryKey: ['playlist', id],
@@ -54,54 +48,18 @@ export function PlaylistPage() {
 
   const playlist = query.data?.playlist;
   const entries = query.data?.entries ?? [];
-  // A blend has two members; the one who isn't you is the one to rebuild with.
-  const otherMember =
-    playlist && playlist.kind === 'blend'
-      ? (playlist.isOwner ? playlist.blendWith : playlist.ownerId) ?? ''
-      : '';
-
-  // Keep the edit form in step with the server's copy, including after a save.
-  useEffect(() => {
-    if (playlist) setDraft({ name: playlist.name, description: playlist.description ?? '' });
-  }, [playlist?.name, playlist?.description]);
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['playlist', id] });
     queryClient.invalidateQueries({ queryKey: ['playlists'] });
   };
 
-  const update = useMutation({
-    mutationFn: (input: Parameters<typeof api.update>[1]) => api.update(id, input),
-    onSuccess: () => {
-      invalidate();
-      setEditing(false);
-    },
-  });
-
   const refresh = useMutation({
     mutationFn: () =>
-      playlist?.kind === 'wrapped' && playlist.generator
+      playlist?.generator
         ? api.refreshWrapped(playlist.generator)
-        : api.blend(otherMember, true),
+        : Promise.reject(new Error('Nothing to rebuild.')),
     onSuccess: invalidate,
-  });
-
-  const uploadCover = useMutation({
-    mutationFn: (file: File) => api.uploadCover(id, file),
-    onSuccess: invalidate,
-  });
-
-  const clearCover = useMutation({
-    mutationFn: () => api.clearCover(id),
-    onSuccess: invalidate,
-  });
-
-  const remove = useMutation({
-    mutationFn: () => api.remove(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['playlists'] });
-      navigate('/playlists');
-    },
   });
 
   const removeTrack = useMutation({
@@ -141,7 +99,7 @@ export function PlaylistPage() {
   return (
     <div>
       <header className="mb-6 flex flex-col gap-5 sm:flex-row sm:items-end">
-        <div className="group relative h-40 w-40 shrink-0">
+        <div className="h-40 w-40 shrink-0">
           {playlist.coverUrl ? (
             <img
               src={playlist.coverUrl}
@@ -157,100 +115,26 @@ export function PlaylistPage() {
               className="h-40 w-40 shadow-card"
             />
           )}
-
-          {playlist.isOwner && playlist.kind === 'manual' && (
-            <>
-              <input
-                ref={coverInput}
-                type="file"
-                accept="image/png,image/jpeg,image/gif,image/webp"
-                className="hidden"
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  if (file) uploadCover.mutate(file);
-                  event.target.value = '';
-                }}
-              />
-              <button
-                type="button"
-                onClick={() => coverInput.current?.click()}
-                disabled={uploadCover.isPending}
-                className="absolute inset-0 flex flex-col items-center justify-center gap-1 rounded-2xl bg-black/60 text-xs font-semibold text-white opacity-0 transition-opacity focus:opacity-100 group-hover:opacity-100"
-              >
-                {uploadCover.isPending ? (
-                  <Loader2 size={18} className="animate-spin" />
-                ) : (
-                  <ImagePlus size={18} />
-                )}
-                {playlist.coverUrl ? 'Change cover' : 'Add a cover'}
-              </button>
-              {playlist.coverUrl && (
-                <button
-                  type="button"
-                  onClick={() => clearCover.mutate()}
-                  aria-label="Remove the cover"
-                  className="absolute -right-2 -top-2 rounded-full bg-ink-850 p-1.5 text-zinc-400 opacity-0 shadow-lift transition-opacity hover:text-red-400 focus:opacity-100 group-hover:opacity-100"
-                >
-                  <X size={13} />
-                </button>
-              )}
-            </>
-          )}
         </div>
 
         <div className="min-w-0 flex-1">
-          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-accent-400">
-            {playlist.kind === 'blend'
-              ? 'Blend'
-              : playlist.kind === 'wrapped'
-                ? 'Your listening'
-                : 'Playlist'}
+          <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-accent-400">
+            {playlist.kind === 'wrapped' ? 'Your listening' : 'Playlist'}
+            {playlist.visibility === 'private' && (
+              <Lock size={10} className="text-zinc-600" aria-label="Private" />
+            )}
           </p>
 
-          {editing ? (
-            <form
-              onSubmit={(event) => {
-                event.preventDefault();
-                update.mutate({ name: draft.name, description: draft.description || null });
-              }}
-              className="mt-1 space-y-2"
-            >
-              <input
-                value={draft.name}
-                onChange={(event) => setDraft({ ...draft, name: event.target.value })}
-                maxLength={80}
-                className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-lg font-bold text-zinc-100 focus:border-accent-500/50 focus:outline-none"
-              />
-              <input
-                value={draft.description}
-                onChange={(event) => setDraft({ ...draft, description: event.target.value })}
-                placeholder="Description (optional)"
-                maxLength={300}
-                className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-zinc-300 placeholder:text-zinc-600 focus:border-accent-500/50 focus:outline-none"
-              />
-              <div className="flex gap-2">
-                <button type="submit" disabled={update.isPending} className="btn-primary">
-                  {update.isPending ? <Loader2 size={15} className="animate-spin" /> : 'Save'}
-                </button>
-                <button type="button" onClick={() => setEditing(false)} className="btn-ghost">
-                  Cancel
-                </button>
-              </div>
-            </form>
-          ) : (
-            <>
-              <h1 className="mt-1 text-2xl font-extrabold tracking-tight text-white sm:text-3xl">
-                {playlist.name}
-              </h1>
-              {playlist.description && (
-                <p className="mt-1 text-sm text-zinc-400">{playlist.description}</p>
-              )}
-            </>
+          <h1 className="mt-1 text-2xl font-extrabold tracking-tight text-white sm:text-3xl">
+            {playlist.name}
+          </h1>
+          {playlist.description && (
+            <p className="mt-1 text-sm text-zinc-400">{playlist.description}</p>
           )}
 
           <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-zinc-500">
-            {/* A blend's title already names both people, so an owner byline
-                would only suggest it belongs to one of them. */}
+            {/* A generated list is built from your own listening, so naming an
+                owner would only be telling you about yourself. */}
             {playlist.kind === 'manual' && (
               <>
                 <Link
@@ -275,13 +159,18 @@ export function PlaylistPage() {
               <button
                 type="button"
                 onClick={() => setMembersOpen(true)}
-                title="Who this playlist is shared with"
+                aria-label="Who this playlist is shared with"
+                title={
+                  playlist.memberCount === 0
+                    ? 'Share with a friend'
+                    : `Shared with ${playlist.memberCount} ${
+                        playlist.memberCount === 1 ? 'person' : 'people'
+                      }`
+                }
                 className="pill transition-colors hover:border-white/20 hover:text-zinc-200"
               >
                 <Users size={11} />
-                {playlist.memberCount === 0
-                  ? 'Share with a friend'
-                  : `${playlist.memberCount} invited`}
+                {playlist.memberCount > 0 && playlist.memberCount}
               </button>
             )}
             {playlist.role && (
@@ -335,18 +224,20 @@ export function PlaylistPage() {
                   playlist.ownerDisplayName || playlist.ownerUsername
                 }`,
               }}
+              className="icon-btn h-9 w-9"
+              label=""
             />
+
+            {/* Somebody else's playlist: keep it, or stop keeping it. */}
+            <SavePlaylistButton playlist={playlist} />
+
             {playlist.kind !== 'manual' && (
               <button
                 type="button"
                 onClick={() => refresh.mutate()}
                 disabled={refresh.isPending}
                 className="btn-ghost"
-                title={
-                  playlist.kind === 'blend'
-                    ? 'Rebuild it from what you have both played since'
-                    : 'Rebuild it from what you have played since'
-                }
+                title="Rebuild it from what you have played since"
               >
                 {refresh.isPending ? (
                   <Loader2 size={15} className="animate-spin" />
@@ -356,73 +247,34 @@ export function PlaylistPage() {
                 Refresh
               </button>
             )}
-            {playlist.isOwner && playlist.kind === 'manual' && !editing && (
-              <button type="button" onClick={() => setEditing(true)} className="btn-ghost">
-                Edit
-              </button>
-            )}
+
+            {/* Name, description, cover, privacy and deleting all live in the
+                one card now, rather than spread over the page. */}
             {playlist.isOwner && playlist.kind === 'manual' && (
               <button
                 type="button"
-                onClick={() => {
-                  if (window.confirm(`Delete "${playlist.name}"? This cannot be undone.`)) {
-                    remove.mutate();
-                  }
-                }}
-                className="btn-ghost text-red-400 hover:text-red-300"
+                onClick={() => setEditing(true)}
+                aria-label="Edit this playlist"
+                title="Edit this playlist"
+                className="icon-btn h-9 w-9"
               >
-                <Trash2 size={15} />
-                Delete
+                <Pencil size={16} />
               </button>
             )}
           </div>
         </div>
       </header>
 
-      {/* Sharing controls, owner only. A blend has none: it is private to the
-          two people in it and generated rather than curated. */}
-      {playlist.isOwner && playlist.kind === 'manual' && (
-        <div className="surface mb-6 flex flex-wrap items-center gap-x-6 gap-y-3 p-4">
-          <div>
-            <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-zinc-500">
-              Who can see it
-            </p>
-            <div className="flex flex-wrap gap-1.5">
-              {VISIBILITIES.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  title={option.hint}
-                  onClick={() => update.mutate({ visibility: option.value })}
-                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
-                    playlist.visibility === option.value
-                      ? 'bg-white/10 text-white'
-                      : 'text-zinc-500 hover:bg-white/5 hover:text-zinc-300'
-                  }`}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <p className="max-w-xs text-xs leading-relaxed text-zinc-500">
-            Visibility decides who can find it. To let one person in — or let them edit —
-            invite them by name from <span className="text-zinc-400">Share with a friend</span>.
-          </p>
-        </div>
-      )}
-
       {entries.length === 0 ? (
         <EmptyState
           icon={<ListMusic size={24} />}
           title="Nothing in here yet"
           description={
-            playlist.kind === 'blend'
-              ? 'Neither of you has played enough yet. Listen to a few things and refresh.'
+            playlist.kind === 'wrapped'
+              ? 'Nothing in this window yet. Play a few things and refresh.'
               : playlist.canEdit
                 ? 'Use the playlist button on any track row to add music.'
-                  : 'The owner has not added anything yet.'
+                : 'The owner has not added anything yet.'
           }
         />
       ) : (
@@ -516,6 +368,14 @@ export function PlaylistPage() {
       )}
 
       {membersOpen && <PlaylistMembers playlist={playlist} onClose={() => setMembersOpen(false)} />}
+
+      {editing && (
+        <PlaylistEditor
+          playlist={playlist}
+          onClose={() => setEditing(false)}
+          onDeleted={() => navigate('/playlists')}
+        />
+      )}
 
       {missing > 0 && (
         <p className="mt-3 text-xs text-zinc-600">

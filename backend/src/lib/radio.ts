@@ -24,6 +24,8 @@ export interface Station {
   streamUrl: string;
   homepageUrl: string | null;
   faviconUrl: string | null;
+  /** Artwork an admin uploaded, which wins over the directory's favicon. */
+  coverUrl: string | null;
   codec: string | null;
   bitrate: number | null;
   country: string | null;
@@ -39,6 +41,7 @@ interface StationRow {
   stream_url: string;
   homepage_url: string | null;
   favicon_url: string | null;
+  cover_url: string | null;
   codec: string | null;
   bitrate: number | null;
   country: string | null;
@@ -82,6 +85,7 @@ function toStation(row: StationRow): Station {
     streamUrl: row.stream_url,
     homepageUrl: row.homepage_url,
     faviconUrl: row.favicon_url,
+    coverUrl: row.cover_url,
     codec: row.codec,
     bitrate: row.bitrate,
     country: row.country,
@@ -478,6 +482,32 @@ export async function updateStation(id: string, input: StationInput): Promise<St
 
   if (!rows[0]) throw new AuthError('No such station.', 404, 'not_found');
   return toStation(rows[0]);
+}
+
+/**
+ * Sets or clears a station's uploaded artwork.
+ *
+ * Clearing falls back to the favicon the directory supplied, and then to the
+ * generated tile — the same ladder the page already walks. The old file is
+ * reported back so the caller can delete it once the new URL is safely stored.
+ */
+export async function setStationCover(id: string, coverUrl: string | null) {
+  const uuid = parseId(id);
+  if (!uuid) throw new AuthError('No such station.', 404, 'not_found');
+
+  // Read the old value first: a subquery inside RETURNING would be evaluated
+  // against the same statement's snapshot, which is easy to get wrong.
+  const { rows: before } = await pool.query<{ cover_url: string | null }>(
+    'SELECT cover_url FROM radio_stations WHERE id = $1',
+    [uuid],
+  );
+  if (!before[0]) throw new AuthError('No such station.', 404, 'not_found');
+
+  const { rows } = await pool.query<StationRow>(
+    'UPDATE radio_stations SET cover_url = $2, updated_at = now() WHERE id = $1 RETURNING *',
+    [uuid, coverUrl],
+  );
+  return { station: toStation(rows[0]!), previousCoverUrl: before[0].cover_url };
 }
 
 export async function deleteStation(id: string) {

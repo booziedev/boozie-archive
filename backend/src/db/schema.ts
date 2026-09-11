@@ -536,4 +536,64 @@ export const migrations: Migration[] = [
       ALTER TABLE listening_status ADD COLUMN IF NOT EXISTS force_pause_at timestamptz;
     `,
   },
+  {
+    id: '013_drop_blend',
+    sql: /* sql */ `
+      /*
+       * Blend is gone.
+       *
+       * The rows go with it: a generated playlist has nothing in it that was
+       * not derived from the play log, so there is nothing to preserve and
+       * leaving them would strand playlists nobody can open or rebuild.
+       */
+      DELETE FROM playlists WHERE kind = 'blend';
+
+      DROP INDEX IF EXISTS playlists_blend_pair_key;
+
+      ALTER TABLE playlists DROP CONSTRAINT IF EXISTS playlists_kind_check;
+      ALTER TABLE playlists
+        ADD CONSTRAINT playlists_kind_check
+        CHECK (kind IN ('manual', 'wrapped'));
+
+      ALTER TABLE playlists DROP COLUMN IF EXISTS blend_with;
+    `,
+  },
+  {
+    id: '014_playlist_saves',
+    sql: /* sql */ `
+      /*
+       * Playlists somebody has kept.
+       *
+       * Until now a playlist appeared in your library the moment it was public,
+       * or friends-only and made by a friend — you never chose it and could not
+       * get rid of it. Being able to *open* something and wanting it *in your
+       * library* are different things, and this is the second one.
+       *
+       * Visibility still decides what you can reach. This decides what you see
+       * when you open Playlists.
+       */
+      CREATE TABLE IF NOT EXISTS playlist_saves (
+        user_id     uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        playlist_id uuid NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+        saved_at    timestamptz NOT NULL DEFAULT now(),
+        PRIMARY KEY (user_id, playlist_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS playlist_saves_user_idx
+        ON playlist_saves (user_id, saved_at DESC);
+    `,
+  },
+  {
+    id: '015_station_cover',
+    sql: /* sql */ `
+      /*
+       * Artwork an admin uploaded for a station.
+       *
+       * Separate from favicon_url, which is whatever a directory happened to
+       * supply: that one is a remote URL that can rot or go missing, this one
+       * is ours. It wins when both exist.
+       */
+      ALTER TABLE radio_stations ADD COLUMN IF NOT EXISTS cover_url text;
+    `,
+  },
 ];

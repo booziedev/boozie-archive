@@ -1,9 +1,44 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, Link2, Loader2, Plus, Radio, Search, X } from 'lucide-react';
+import { Check, ImagePlus, Link2, Loader2, Plus, Radio, Search, X } from 'lucide-react';
 
 import { radio } from '../lib/api';
 import type { DirectoryStation, Station } from '../lib/types';
+
+/**
+ * What the station's tile will look like.
+ *
+ * A file chosen but not yet uploaded is previewed from an object URL, so the
+ * Add path shows the choice rather than asking you to trust it.
+ */
+function StationPreview({ station, pending }: { station?: Station; pending: File | null }) {
+  const [objectUrl, setObjectUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!pending) {
+      setObjectUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(pending);
+    setObjectUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [pending]);
+
+  const src = objectUrl ?? station?.coverUrl ?? station?.faviconUrl ?? null;
+
+  return src ? (
+    <img
+      src={src}
+      alt=""
+      referrerPolicy="no-referrer"
+      className="h-20 w-20 rounded-xl bg-white/5 object-cover"
+    />
+  ) : (
+    <span className="flex h-20 w-20 items-center justify-center rounded-xl bg-white/5">
+      <Radio size={20} className="text-zinc-600" />
+    </span>
+  );
+}
 
 /**
  * Adding a station, two ways.
@@ -18,7 +53,7 @@ import type { DirectoryStation, Station } from '../lib/types';
  * reached rather than the one that was typed.
  */
 export function AddStationDialog({
-  station,
+  station: opened,
   onClose,
 }: {
   /** Passing one switches the dialog to editing it. */
@@ -26,7 +61,19 @@ export function AddStationDialog({
   onClose: () => void;
 }) {
   const queryClient = useQueryClient();
-  const editing = Boolean(station);
+  const editing = Boolean(opened);
+
+  /**
+   * The station as it is now, not as it was when the dialog opened.
+   *
+   * Artwork uploads land immediately rather than on save, so the copy handed
+   * in goes stale the moment one does — leaving the preview showing the old
+   * image and hiding the "remove" link. The list is already in the cache, so
+   * re-reading it costs nothing.
+   */
+  const list = useQuery({ queryKey: ['radio'], queryFn: radio.list, enabled: editing });
+  const station =
+    (opened && list.data?.stations.find((entry) => entry.id === opened.id)) || opened;
   const [tab, setTab] = useState<'search' | 'url'>(editing ? 'url' : 'search');
 
   const [term, setTerm] = useState('');
@@ -36,10 +83,28 @@ export function AddStationDialog({
   const [country, setCountry] = useState(station?.country ?? '');
   const [tags, setTags] = useState((station?.tags ?? []).join(', '));
   const [added, setAdded] = useState<string[]>([]);
+  const coverInput = useRef<HTMLInputElement>(null);
+  /**
+   * A cover chosen before the station exists.
+   *
+   * There is nothing to attach it to until the station has been created, so on
+   * the Add path it is held here and uploaded straight afterwards.
+   */
+  const [pendingCover, setPendingCover] = useState<File | null>(null);
 
   const done = () => {
     queryClient.invalidateQueries({ queryKey: ['radio'] });
   };
+
+  const uploadCover = useMutation({
+    mutationFn: (file: File) => radio.uploadCover(station!.id, file),
+    onSuccess: done,
+  });
+
+  const clearCover = useMutation({
+    mutationFn: () => radio.clearCover(station!.id),
+    onSuccess: done,
+  });
 
   const results = useQuery({
     queryKey: ['radio', 'search', submitted],
@@ -49,20 +114,26 @@ export function AddStationDialog({
   });
 
   const save = useMutation({
-    mutationFn: () =>
-      editing
-        ? radio.update(station!.id, {
-            name: name.trim(),
-            streamUrl: url.trim(),
-            country: country.trim() || null,
-            tags: tags.split(',').map((tag) => tag.trim()).filter(Boolean),
-          })
-        : radio.create({
-            streamUrl: url.trim(),
-            name: name.trim() || undefined,
-            country: country.trim() || null,
-            tags,
-          }),
+    mutationFn: async () => {
+      if (editing) {
+        return radio.update(station!.id, {
+          name: name.trim(),
+          streamUrl: url.trim(),
+          country: country.trim() || null,
+          tags: tags.split(',').map((tag) => tag.trim()).filter(Boolean),
+        });
+      }
+
+      const created = await radio.create({
+        streamUrl: url.trim(),
+        name: name.trim() || undefined,
+        country: country.trim() || null,
+        tags,
+      });
+      // The station had to exist before its artwork had anywhere to go.
+      if (pendingCover) await radio.uploadCover(created.station.id, pendingCover);
+      return created;
+    },
     onSuccess: () => {
       done();
       onClose();
@@ -228,6 +299,67 @@ export function AddStationDialog({
             }}
             className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4"
           >
+            {/* Artwork. On the Add path the station does not exist yet, so the
+                file waits here and is uploaded the moment it does. */}
+            <div className="flex items-center gap-3">
+              <div className="group relative h-20 w-20 shrink-0">
+                <StationPreview station={station} pending={pendingCover} />
+
+                <input
+                  ref={coverInput}
+                  type="file"
+                  accept="image/png,image/jpeg,image/gif,image/webp"
+                  className="hidden"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) {
+                      if (editing) uploadCover.mutate(file);
+                      else setPendingCover(file);
+                    }
+                    event.target.value = '';
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => coverInput.current?.click()}
+                  disabled={uploadCover.isPending}
+                  aria-label="Choose station artwork"
+                  className="absolute inset-0 flex flex-col items-center justify-center gap-1 rounded-xl bg-black/60 text-[10px] font-semibold text-white opacity-0 transition-opacity focus:opacity-100 group-hover:opacity-100"
+                >
+                  {uploadCover.isPending ? (
+                    <Loader2 size={15} className="animate-spin" />
+                  ) : (
+                    <ImagePlus size={15} />
+                  )}
+                  Artwork
+                </button>
+              </div>
+
+              <div className="min-w-0 flex-1 text-xs leading-relaxed text-zinc-600">
+                Optional. Without one the station shows whatever logo the directory supplied,
+                and failing that a tile made from its name.
+                {editing && station?.coverUrl && (
+                  <button
+                    type="button"
+                    onClick={() => clearCover.mutate()}
+                    disabled={clearCover.isPending}
+                    className="mt-1 block text-zinc-500 transition-colors hover:text-zinc-300"
+                  >
+                    Remove the artwork
+                  </button>
+                )}
+                {pendingCover && (
+                  <button
+                    type="button"
+                    onClick={() => setPendingCover(null)}
+                    className="mt-1 block text-zinc-500 transition-colors hover:text-zinc-300"
+                  >
+                    Clear the chosen image
+                  </button>
+                )}
+              </div>
+            </div>
+
             <label className="block">
               <span className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-zinc-500">
                 Stream URL
