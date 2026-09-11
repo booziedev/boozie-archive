@@ -46,6 +46,12 @@ export interface NowPlaying {
   duration: number | null;
   position: number;
   isPlaying: boolean;
+  /**
+   * Where this came from: 'archive' for the player on this site, otherwise the
+   * service the listener told us they scrobble from ('Spotify', 'Tidal', …),
+   * which is what the status line puts in front of the track.
+   */
+  source: string;
   updatedAt: string;
 }
 
@@ -130,6 +136,7 @@ interface StatusRow {
   duration: number | null;
   position: number | null;
   is_playing: boolean;
+  source: string;
   updated_at: Date;
 }
 
@@ -144,6 +151,7 @@ function toNowPlaying(row: StatusRow): NowPlaying {
     duration: row.duration,
     position: row.position ?? 0,
     isPlaying: row.is_playing,
+    source: row.source ?? 'archive',
     updatedAt: row.updated_at.toISOString(),
   };
 }
@@ -232,15 +240,21 @@ export async function heartbeat(
     await clearNowPlaying(userId);
   } else {
     await pool.query(
+      /*
+       * Always stamped 'archive', and it always wins: this is a player
+       * reporting what it is doing at this instant, where a polled Last.fm
+       * status is up to a minute behind. The scrobble bridge writes here too
+       * and defers to any row this one has touched recently.
+       */
       `INSERT INTO listening_status
          (user_id, track_id, title, artist, album, album_id, cover_id,
-          duration, position, is_playing, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
+          duration, position, is_playing, source, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'archive', now())
        ON CONFLICT (user_id) DO UPDATE SET
          track_id = EXCLUDED.track_id, title = EXCLUDED.title, artist = EXCLUDED.artist,
          album = EXCLUDED.album, album_id = EXCLUDED.album_id, cover_id = EXCLUDED.cover_id,
          duration = EXCLUDED.duration, position = EXCLUDED.position,
-         is_playing = EXCLUDED.is_playing, updated_at = now()`,
+         is_playing = EXCLUDED.is_playing, source = 'archive', updated_at = now()`,
       [
         userId,
         input.trackId,
@@ -412,6 +426,8 @@ async function toPartyState(row: PartyRow, viewerId: string): Promise<PartyState
             duration: row.duration,
             position: row.position,
             isPlaying: row.is_playing,
+            // A party only ever mirrors this site's own player.
+            source: 'archive',
             updatedAt: row.updated_at.toISOString(),
           }
         : null,
@@ -455,6 +471,10 @@ export async function canListenAlong(viewerId: string, hostId: string): Promise<
  * joined. Seeding from the status row is what makes joining instant — without
  * it the room would sit empty until the host's next heartbeat, which is up to
  * twenty seconds for someone who doesn't yet know they have listeners.
+ *
+ * Only this site's own playback seeds a room. A scrobbled status names a track
+ * the archive has no file for, so a party seeded from one would hand every
+ * guest an id that resolves to nothing.
  */
 export async function ensureParty(hostId: string): Promise<string> {
   const { rows: existing } = await pool.query<{ id: string }>(
@@ -476,10 +496,13 @@ export async function ensureParty(hostId: string): Promise<string> {
      SELECT $1, s.track_id, s.title, s.artist, s.album, s.album_id, s.cover_id,
             s.duration, s.position, s.is_playing, s.updated_at
        FROM listening_status s
-      WHERE s.user_id = $1
+      WHERE s.user_id = $1 AND s.source = 'archive'
       UNION ALL
      SELECT $1, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, false, now()
-      WHERE NOT EXISTS (SELECT 1 FROM listening_status WHERE user_id = $1)
+      WHERE NOT EXISTS (
+        SELECT 1 FROM listening_status
+         WHERE user_id = $1 AND source = 'archive'
+      )
      RETURNING id`,
     [hostId],
   );

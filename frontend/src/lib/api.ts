@@ -43,6 +43,10 @@ import type {
   ThreadSummary,
   TopEntry,
   Track,
+  ExternalPlay,
+  ExternalSummary,
+  ScrobbleConnection,
+  ServiceLabel,
 } from './types';
 
 /** Thrown for any non-2xx response so the UI can show a real message. */
@@ -378,6 +382,27 @@ export const history = {
   recap: (range: HistoryRange = 'year') =>
     request<{ recap: Recap }>(`/api/history/recap?range=${range}`),
   clear: () => jsonRequest<{ deleted: number }>('/api/history', 'DELETE'),
+};
+
+/**
+ * The scrobble bridge: listening that happened somewhere else.
+ *
+ * Every one of these is about the signed-in account and nobody else's — the
+ * only part of somebody's outside listening anyone else ever sees is the
+ * now-playing status, and that arrives through `presence.live` under the same
+ * visibility rules as everything else.
+ */
+export const scrobbles = {
+  connection: () =>
+    request<{ connection: ScrobbleConnection | null; labels: ServiceLabel[] }>('/api/scrobbles/me'),
+  connect: (input: { username: string; label: ServiceLabel }) =>
+    jsonRequest<{ connection: ScrobbleConnection }>('/api/scrobbles/me', 'PUT', input),
+  disconnect: () => jsonRequest<{ ok: true }>('/api/scrobbles/me', 'DELETE'),
+  recent: (limit = 30) =>
+    request<{ plays: ExternalPlay[] }>(`/api/scrobbles/recent?limit=${limit}`),
+  summary: (range: HistoryRange = 'month') =>
+    request<{ summary: ExternalSummary }>(`/api/scrobbles/summary?range=${range}`),
+  clearPlays: () => jsonRequest<{ deleted: number }>('/api/scrobbles/plays', 'DELETE'),
 };
 
 /**

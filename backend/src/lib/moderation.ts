@@ -37,6 +37,12 @@ export interface LiveListener {
   isPlaying: boolean;
   /** True for a radio station rather than a file. */
   isRadio: boolean;
+  /**
+   * 'archive' for this site's own player; otherwise the service the listener
+   * scrobbles from. Nothing an admin does here reaches an external player, so
+   * the tab has to be able to say which is which.
+   */
+  source: string;
   updatedAt: string;
   /** When an admin last asked them to stop, if ever. */
   forcePauseAt: string | null;
@@ -72,6 +78,7 @@ export async function liveListeners(): Promise<LiveListener[]> {
     duration: number | null;
     position: number;
     is_playing: boolean;
+    source: string;
     updated_at: Date;
     force_pause_at: Date | null;
     timeout_until: Date | null;
@@ -99,6 +106,7 @@ export async function liveListeners(): Promise<LiveListener[]> {
     position: row.position,
     isPlaying: row.is_playing,
     isRadio: row.track_id.startsWith('rd_'),
+    source: row.source ?? 'archive',
     updatedAt: row.updated_at.toISOString(),
     forcePauseAt: row.force_pause_at?.toISOString() ?? null,
     timeoutUntil: row.timeout_until?.toISOString() ?? null,

@@ -49,6 +49,12 @@ function ListenerRow({
   busy: boolean;
 }) {
   const [timeoutOpen, setTimeoutOpen] = useState(false);
+  /*
+   * Playing on Spotify, Apple Music or wherever, read through their Last.fm
+   * account. Worth showing — it is genuinely what they are listening to — but
+   * flagged, because force-pause talks to this site's player and nothing else.
+   */
+  const external = listener.source !== 'archive';
   const progress =
     listener.duration && listener.duration > 0
       ? Math.min(100, (listener.position / listener.duration) * 100)
@@ -62,6 +68,7 @@ function ListenerRow({
         <p className="flex items-center gap-1.5 truncate text-sm text-zinc-100">
           {listener.displayName || listener.username}
           {listener.role === 'admin' && <span className="pill">admin</span>}
+          {external && <span className="pill text-zinc-400">{listener.source}</span>}
           {listener.timeoutUntil && (
             <span className="pill text-amber-300">{untilLabel(listener.timeoutUntil)}</span>
           )}
@@ -72,9 +79,9 @@ function ListenerRow({
       </div>
 
       <div className="flex min-w-0 flex-[2] items-center gap-2.5">
-        {listener.isRadio ? (
+        {listener.isRadio || external ? (
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white/5">
-            <Radio size={16} className="text-accent-300" />
+            <Radio size={16} className={external ? 'text-zinc-500' : 'text-accent-300'} />
           </span>
         ) : (
           <CoverImage
@@ -97,7 +104,7 @@ function ListenerRow({
             {listener.isRadio ? 'Live radio' : listener.artist}
           </span>
 
-          {!listener.isRadio && listener.duration ? (
+          {!listener.isRadio && !external && listener.duration ? (
             <span className="mt-1 flex items-center gap-2">
               <span className="h-[3px] flex-1 overflow-hidden rounded-full bg-white/10">
                 <span
@@ -117,8 +124,14 @@ function ListenerRow({
         <button
           type="button"
           onClick={onPause}
-          disabled={busy || !listener.isPlaying}
-          title={listener.isPlaying ? 'Stop their playback' : 'They are not playing'}
+          disabled={busy || !listener.isPlaying || external}
+          title={
+            external
+              ? `They are listening on ${listener.source} — nothing here can stop that`
+              : listener.isPlaying
+                ? 'Stop their playback'
+                : 'They are not playing'
+          }
           className="icon-btn h-8 w-8 disabled:opacity-30"
           aria-label={`Pause ${listener.username}`}
         >

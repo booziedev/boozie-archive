@@ -424,8 +424,16 @@ function ListenAlongButton({ profile }: { profile: PublicProfile }) {
 
   const followingThem = isFollowing && party?.hostId === profile.id;
 
-  // Both live: the button appears the moment they start playing something.
-  if (!profile.canListenAlong || !statusOf(profile.id)) return null;
+  /*
+   * Both live: the button appears the moment they start playing something.
+   *
+   * Something *here*, though. A status scrobbled from Spotify says what they
+   * are listening to, but there is no player of theirs to follow and no file
+   * behind the track — offering to join would hand whoever pressed it an empty
+   * room.
+   */
+  const status = statusOf(profile.id);
+  if (!profile.canListenAlong || !status || status.source !== 'archive') return null;
 
   async function start() {
     setFailure(null);

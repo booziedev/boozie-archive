@@ -596,4 +596,67 @@ export const migrations: Migration[] = [
       ALTER TABLE radio_stations ADD COLUMN IF NOT EXISTS cover_url text;
     `,
   },
+  {
+    id: '016_scrobbles',
+    sql: /* sql */ `
+      /*
+       * Listening that happened somewhere else.
+       *
+       * Last.fm is the bridge: whatever someone scrobbles from Spotify, Apple
+       * Music, Tidal or a desktop player lands in one place we can read with
+       * nothing but an API key. One connection per person per provider, so a
+       * second bridge can be added later without touching this schema.
+       *
+       * last_scrobble_at is the watermark the poller asks from, so a restart
+       * picks up where it left off instead of re-reading a whole history.
+       */
+      CREATE TABLE IF NOT EXISTS scrobble_accounts (
+        user_id          uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        provider         text NOT NULL,
+        username         text NOT NULL,
+        label            text NOT NULL DEFAULT 'Last.fm',
+        enabled          boolean NOT NULL DEFAULT true,
+        connected_at     timestamptz NOT NULL DEFAULT now(),
+        last_polled_at   timestamptz,
+        last_scrobble_at timestamptz,
+        last_error       text,
+        PRIMARY KEY (user_id, provider)
+      );
+
+      /*
+       * Outside plays are their own table, not a column on play_history.
+       *
+       * Top Tracks, the recap and every generated playlist read play_history
+       * and expect a library id they can open. A source column would mean
+       * every one of those queries needs a filter, and the day one is missed
+       * a Wrapped playlist fills with tracks nobody here can play. A separate
+       * table makes that impossible rather than merely unlikely.
+       *
+       * The unique key is what lets the poller overlap its window: asking for
+       * the last few minutes again re-inserts nothing.
+       */
+      CREATE TABLE IF NOT EXISTS external_plays (
+        id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id    uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        provider   text NOT NULL,
+        title      text NOT NULL,
+        artist     text NOT NULL,
+        album      text,
+        image_url  text,
+        played_at  timestamptz NOT NULL,
+        UNIQUE (user_id, provider, played_at, title)
+      );
+
+      CREATE INDEX IF NOT EXISTS external_plays_user_idx
+        ON external_plays (user_id, played_at DESC);
+
+      /*
+       * Where a status came from. The archive's own player knows exactly what
+       * it is doing right now; a polled scrobble is up to a minute stale, so
+       * the two need telling apart to decide which one wins.
+       */
+      ALTER TABLE listening_status
+        ADD COLUMN IF NOT EXISTS source text NOT NULL DEFAULT 'archive';
+    `,
+  },
 ];

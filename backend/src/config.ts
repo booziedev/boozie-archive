@@ -220,6 +220,27 @@ export const config = {
   tenorApiKey: str('TENOR_API_KEY', ''),
   /** emoji.gg needs no key; set to false to hide that tab. */
   emojiGgEnabled: bool('EMOJI_GG_ENABLED', true),
+
+  // --- listening from outside the archive ---------------------------------
+
+  /**
+   * Last.fm API key, for the scrobble bridge.
+   *
+   * Reading somebody's recent tracks needs a key and nothing else — no OAuth,
+   * no secret, no user session — so this one value is the whole dependency.
+   * Create one at last.fm/api/account/create. Without it the Connections
+   * section says so and the poller never runs.
+   */
+  lastfmApiKey: str('LASTFM_API_KEY', ''),
+  /** Overridable so the poller can be pointed at a local stub in tests. */
+  lastfmApiBase: str('LASTFM_API_BASE', 'https://ws.audioscrobbler.com/2.0/'),
+  /**
+   * How often every connected account is checked, in seconds.
+   *
+   * One request per account per minute is far inside Last.fm's rate limit and
+   * is as fresh as a polled status can sensibly be.
+   */
+  scrobblePollSeconds: int('SCROBBLE_POLL_SECONDS', 60),
 } as const;
 
 /**

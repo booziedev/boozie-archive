@@ -11,6 +11,7 @@ import { config } from './config.js';
 import { library } from './lib/library.js';
 import { assertDatabaseReachable, closePool, runMigrations } from './db/pool.js';
 import { AuthError, pruneExpiredSessions, resolveSession } from './lib/auth.js';
+import { startScrobblePoller } from './lib/scrobbles.js';
 import { apiRoutes } from './routes/api.js';
 import { adminRoutes } from './routes/admin.js';
 import { authRoutes, inviteThrottle, loginThrottle } from './routes/auth.js';
@@ -20,6 +21,7 @@ import { mediaRoutes } from './routes/media.js';
 import { playlistRoutes } from './routes/playlists.js';
 import { presenceRoutes } from './routes/presence.js';
 import { radioRoutes } from './routes/radio.js';
+import { scrobbleRoutes } from './routes/scrobbles.js';
 import { socialRoutes } from './routes/social.js';
 import { stickerRoutes } from './routes/stickers.js';
 import { suggestionRoutes } from './routes/suggestions.js';
@@ -183,6 +185,7 @@ async function main() {
     // the playlist's, so it always needs an account behind it.
     '/api/download/playlist/',
     '/api/radio',
+    '/api/scrobbles',
     '/api/suggestions',
     '/api/stickers/',
   ];
@@ -307,6 +310,7 @@ async function main() {
     await app.register(historyRoutes, { prefix: '/api' });
     await app.register(playlistRoutes, { prefix: '/api' });
     await app.register(radioRoutes, { prefix: '/api' });
+    await app.register(scrobbleRoutes, { prefix: '/api' });
     await app.register(stickerRoutes, { prefix: '/api' });
     await app.register(suggestionRoutes, { prefix: '/api' });
   }
@@ -454,6 +458,12 @@ async function main() {
     timer.unref();
   }
 
+  /*
+   * The scrobble bridge polls on its own clock, after listen() for the same
+   * reason the scan does: nothing about it should hold up the first request.
+   */
+  const scrobbleTimer = config.authEnabled ? startScrobblePoller(app.log) : null;
+
   let cleanupTimer: NodeJS.Timeout | null = null;
   if (config.authEnabled) {
     cleanupTimer = setInterval(
@@ -474,6 +484,7 @@ async function main() {
       app.log.info(`${signal} received, shutting down`);
       if (timer) clearInterval(timer);
       if (cleanupTimer) clearInterval(cleanupTimer);
+      if (scrobbleTimer) clearInterval(scrobbleTimer);
       app
         .close()
         .then(() => (config.authEnabled ? closePool() : undefined))

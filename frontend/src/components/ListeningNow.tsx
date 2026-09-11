@@ -63,6 +63,30 @@ export function ListeningNow({
     );
   }
 
+  /*
+   * Listening somewhere else.
+   *
+   * `source` is the service they told us they scrobble from — Last.fm does not
+   * report which app produced a scrobble, so this is a label they chose, not
+   * something detected. Nothing here links anywhere: the archive has no file
+   * behind the track, and a dead link reads worse than plain text.
+   */
+  if (now.source && now.source !== 'archive') {
+    const external = `${now.source}: ${now.title} — ${now.artist}`;
+    return (
+      <span title={external} className={classes}>
+        <PlayingIndicator />
+        <span className="min-w-0 truncate">
+          {!compact && <span className="text-zinc-500">Listening on </span>}
+          <span className="font-medium text-zinc-400">{now.source}</span>
+          <span className="text-zinc-500">: </span>
+          <span className="font-medium text-zinc-300">{now.title}</span>
+          <span className="text-zinc-500"> · {now.artist}</span>
+        </span>
+      </span>
+    );
+  }
+
   const label = `${now.title} — ${now.artist}`;
   const body = (
     <>

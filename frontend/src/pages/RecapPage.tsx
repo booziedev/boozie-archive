@@ -1,14 +1,14 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Clock, Disc3, ListMusic, Lock, Music2, Users } from 'lucide-react';
+import { Clock, Disc3, ListMusic, Lock, Music2, Radio, Users } from 'lucide-react';
 
 import { CoverImage } from '../components/CoverImage';
 import { PageHeader, SectionHeader } from '../components/PageHeader';
 import { EmptyState, ErrorState } from '../components/states';
-import { history, playlists } from '../lib/api';
+import { history, playlists, scrobbles } from '../lib/api';
 import { formatRuntime } from '../lib/format';
-import type { HistoryRange, TopEntry } from '../lib/types';
+import type { ExternalTop, HistoryRange, TopEntry } from '../lib/types';
 
 const RANGES: { value: HistoryRange; label: string }[] = [
   { value: 'week', label: 'This week' },
@@ -184,6 +184,97 @@ function Chart({
  * month" is the question people actually have. It reads entirely from the play
  * log, so it is empty until there is something to summarise.
  */
+/**
+ * What a connected Last.fm account has been playing.
+ *
+ * Kept visually apart from everything above it, and never folded into those
+ * numbers: the archive's stats are about music this archive holds, and mixing
+ * in plays from somewhere else would make both halves mean less. Nothing here
+ * is a link — there is no file behind any of it.
+ */
+function Elsewhere({ range }: { range: HistoryRange }) {
+  const connectionQuery = useQuery({
+    queryKey: ['scrobbles', 'connection'],
+    queryFn: scrobbles.connection,
+  });
+  const connection = connectionQuery.data?.connection ?? null;
+
+  const summaryQuery = useQuery({
+    queryKey: ['scrobbles', 'summary', range],
+    queryFn: () => scrobbles.summary(range),
+    enabled: Boolean(connection),
+  });
+  const summary = summaryQuery.data?.summary;
+
+  // Nothing connected is not a state worth a panel — Settings is where you go
+  // to start, and this page shouldn't nag about a feature nobody asked for.
+  if (!connection) return null;
+
+  return (
+    <section className="space-y-3">
+      <SectionHeader title="Elsewhere" />
+      <div className="surface space-y-5 p-5">
+        <p className="text-xs leading-relaxed text-zinc-500">
+          From <span className="font-medium text-zinc-400">{connection.label}</span>, by way of your
+          Last.fm account. Counted separately from everything above: these are tracks the archive
+          does not hold, so they stay out of your top tracks and your generated playlists.
+        </p>
+
+        {summaryQuery.isLoading || !summary ? (
+          <p className="text-sm text-zinc-500">Working it out…</p>
+        ) : summary.plays === 0 ? (
+          <p className="text-sm text-zinc-500">
+            Nothing scrobbled in this window yet. Play something on {connection.label} and it shows
+            up within a minute or so.
+          </p>
+        ) : (
+          <>
+            <div className="grid grid-cols-3 gap-3">
+              <Stat icon={<Music2 size={11} />} label="Plays" value={String(summary.plays)} />
+              <Stat icon={<Radio size={11} />} label="Tracks" value={String(summary.tracks)} />
+              <Stat icon={<Users size={11} />} label="Artists" value={String(summary.artists)} />
+            </div>
+
+            <div className="grid gap-5 lg:grid-cols-2">
+              <ExternalChart title="Top tracks" entries={summary.topTracks} />
+              <ExternalChart title="Top artists" entries={summary.topArtists} />
+            </div>
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
+
+/** The same chart shape as the archive's, minus everything that links. */
+function ExternalChart({ title, entries }: { title: string; entries: ExternalTop[] }) {
+  if (entries.length === 0) return null;
+
+  return (
+    <div>
+      <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-600">{title}</p>
+      <ol className="divide-y divide-white/[0.03]">
+        {entries.map((entry, index) => (
+          <li key={entry.key} className="flex items-center gap-3 py-2">
+            <span className="w-5 shrink-0 text-center text-sm font-bold tabular-nums text-zinc-600">
+              {index + 1}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm font-medium text-zinc-100">{entry.name}</span>
+              {entry.subtitle && (
+                <span className="block truncate text-xs text-zinc-600">{entry.subtitle}</span>
+              )}
+            </span>
+            <span className="shrink-0 text-sm font-semibold tabular-nums text-zinc-400">
+              {entry.plays}
+            </span>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
 export function RecapPage() {
   const [range, setRange] = useState<HistoryRange>('month');
 
@@ -258,6 +349,8 @@ export function RecapPage() {
           <Chart title="Top albums" entries={recap.topAlbums} showCover />
         </>
       )}
+
+      <Elsewhere range={range} />
     </div>
   );
 }

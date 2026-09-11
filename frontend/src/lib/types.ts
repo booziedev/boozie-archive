@@ -337,6 +337,12 @@ export interface NowPlaying {
   duration: number | null;
   position: number;
   isPlaying: boolean;
+  /**
+   * 'archive' when it is this site's own player. Anything else is the service
+   * the listener told us they scrobble from, and becomes the word in front of
+   * the track: "Spotify: Nightcall".
+   */
+  source: string;
   updatedAt: string;
 }
 
@@ -518,6 +524,11 @@ export interface LiveListener {
   position: number;
   isPlaying: boolean;
   isRadio: boolean;
+  /**
+   * 'archive' for the player on this site, otherwise the service the listener
+   * scrobbles from. Force-pause only reaches this site's player.
+   */
+  source: string;
   updatedAt: string;
   forcePauseAt: string | null;
   timeoutUntil: string | null;
@@ -529,4 +540,56 @@ export interface TimedOutUser {
   displayName: string | null;
   avatarUrl: string | null;
   timeoutUntil: string;
+}
+
+// ------------------------------------------------- listening somewhere else
+
+/** Services somebody can say they listen on. Purely a label they picked. */
+export type ServiceLabel =
+  | 'Spotify'
+  | 'Apple Music'
+  | 'Tidal'
+  | 'YouTube Music'
+  | 'Deezer'
+  | 'SoundCloud'
+  | 'Last.fm';
+
+export interface ScrobbleConnection {
+  provider: 'lastfm';
+  username: string;
+  label: ServiceLabel;
+  enabled: boolean;
+  connectedAt: string;
+  lastPolledAt: string | null;
+  lastScrobbleAt: string | null;
+  lastError: string | null;
+  /** False when the server has no Last.fm key, so the UI can say why. */
+  configured: boolean;
+}
+
+export interface ExternalPlay {
+  id: string;
+  provider: 'lastfm';
+  title: string;
+  artist: string;
+  album: string | null;
+  imageUrl: string | null;
+  playedAt: string;
+}
+
+export interface ExternalTop {
+  key: string;
+  name: string;
+  subtitle: string | null;
+  imageUrl: string | null;
+  plays: number;
+}
+
+export interface ExternalSummary {
+  range: 'week' | 'month' | 'year' | 'all';
+  plays: number;
+  tracks: number;
+  artists: number;
+  topTracks: ExternalTop[];
+  topArtists: ExternalTop[];
 }
