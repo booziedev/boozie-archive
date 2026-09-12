@@ -593,3 +593,58 @@ export interface ExternalSummary {
   topTracks: ExternalTop[];
   topArtists: ExternalTop[];
 }
+
+// ------------------------------------------------------ the profile showcase
+
+export type FeaturedKind = 'track' | 'artist' | 'album';
+export type SlotCount = 3 | 5 | 10;
+
+export interface FeaturedItem {
+  /** Row id — what a reorder, a removal and an art upload all address. */
+  id: string;
+  kind: FeaturedKind;
+  source: 'archive' | 'deezer';
+  title: string;
+  subtitle: string | null;
+  /** Set while the archive still resolves it, so the tile can link. */
+  libraryId: string | null;
+  /** The id to hand CoverImage. Archive picks only. */
+  coverId: string | null;
+  /** The resolved track, so an archive pick plays from its tile. */
+  track: Track | null;
+  /** A ready-made path on this origin, or null for the placeholder. */
+  artUrl: string | null;
+  /** True when there is nothing here to open — a catalogue-only pick. */
+  external: boolean;
+}
+
+export interface FeaturedList {
+  slots: SlotCount;
+  items: FeaturedItem[];
+  /** Picks beyond the current slot count. Only ever sent to the owner. */
+  hidden: FeaturedItem[];
+}
+
+export interface Showcase {
+  tracks: FeaturedList;
+  artists: FeaturedList;
+  albums: FeaturedList;
+}
+
+/** One search result, from this archive or from the catalogue. */
+export interface FeaturedCandidate {
+  source: 'archive' | 'deezer';
+  /** A library id for archive results; the catalogue's id otherwise. */
+  id: string;
+  kind: FeaturedKind;
+  title: string;
+  subtitle: string | null;
+  artUrl: string | null;
+}
+
+export interface CandidateResults {
+  archive: FeaturedCandidate[];
+  catalogue: FeaturedCandidate[];
+  /** Set when the catalogue half failed; the archive half still answered. */
+  catalogueError: string | null;
+}

@@ -8,6 +8,16 @@ interface CoverImageProps {
   /** Album, artist or track id — the API resolves all three. */
   id: string;
   name: string;
+  /**
+   * An explicit image path, which wins over `id`.
+   *
+   * For artwork this server holds but the library index does not know about —
+   * an uploaded image, or a catalogue picture we cached. Always a path on this
+   * origin; a remote URL here would leak the viewer's IP to whoever serves it,
+   * which is exactly what the caching exists to prevent. `id` and `name` still
+   * seed the placeholder underneath.
+   */
+  src?: string | null;
   size?: 128 | 320 | 640;
   /** Skip the network request entirely when the index says there is no art. */
   hasCover?: boolean;
@@ -26,6 +36,7 @@ interface CoverImageProps {
 export function CoverImage({
   id,
   name,
+  src = null,
   size = 320,
   hasCover = true,
   rounded = 'rounded-xl',
@@ -35,13 +46,15 @@ export function CoverImage({
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
 
-  // A new entity means a new image: reset the fade state.
+  // A new entity — or a new explicit image — means a new picture to fade in.
   useEffect(() => {
     setLoaded(false);
     setFailed(false);
-  }, [id, size]);
+  }, [id, src, size]);
 
-  const showImage = hasCover && !failed;
+  // `hasCover` is the library index saying there is nothing to fetch; it has
+  // no say over an image we were handed directly.
+  const showImage = (src || hasCover) && !failed;
 
   return (
     <div
@@ -58,7 +71,7 @@ export function CoverImage({
 
       {showImage && (
         <img
-          src={mediaUrl.cover(id, size)}
+          src={src || mediaUrl.cover(id, size)}
           alt=""
           // Sends the session cookie when the API is on another origin.
           crossOrigin={mediaCrossOrigin()}

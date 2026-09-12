@@ -43,8 +43,12 @@ import type {
   ThreadSummary,
   TopEntry,
   Track,
+  CandidateResults,
   ExternalPlay,
   ExternalSummary,
+  FeaturedKind,
+  Showcase,
+  SlotCount,
   ScrobbleConnection,
   ServiceLabel,
 } from './types';
@@ -247,7 +251,8 @@ export const admin = {
 
 export const social = {
   // profiles
-  myProfile: () => request<{ profile: PublicProfile }>('/api/profile/me'),
+  // Both profile reads carry the showcase, since the page always wants both.
+  myProfile: () => request<{ profile: PublicProfile; showcase: Showcase }>('/api/profile/me'),
   updateProfile: (patch: {
     displayName?: string | null;
     bio?: string | null;
@@ -255,7 +260,9 @@ export const social = {
     accentColor?: string | null;
   }) => jsonRequest<{ profile: PublicProfile }>('/api/profile/me', 'PATCH', patch),
   profile: (username: string) =>
-    request<{ profile: PublicProfile }>(`/api/profile/${encodeURIComponent(username)}`),
+    request<{ profile: PublicProfile; showcase: Showcase }>(
+      `/api/profile/${encodeURIComponent(username)}`,
+    ),
 
   /**
    * Uploads a profile picture. The body is multipart, so no JSON content type
@@ -382,6 +389,49 @@ export const history = {
   recap: (range: HistoryRange = 'year') =>
     request<{ recap: Recap }>(`/api/history/recap?range=${range}`),
   clear: () => jsonRequest<{ deleted: number }>('/api/history', 'DELETE'),
+};
+
+/**
+ * The profile showcase: featured tracks, artists and albums.
+ *
+ * Everything that writes is about the signed-in account — no call names a
+ * user, so the only showcase anyone can change is their own. Every one of
+ * these returns the whole showcase back, so a caller never has to work out
+ * what moved.
+ */
+export const showcase = {
+  mine: () => request<{ showcase: Showcase }>('/api/featured/me'),
+  search: (kind: FeaturedKind, q: string, limit = 20) =>
+    request<CandidateResults>(
+      `/api/catalogue/search?kind=${kind}&q=${encodeURIComponent(q)}&limit=${limit}`,
+    ),
+  /** One of `{ libraryId }` for something here, or `{ sourceId }` for a pick. */
+  add: (kind: FeaturedKind, input: { libraryId?: string; sourceId?: string }) =>
+    jsonRequest<{ showcase: Showcase }>(`/api/featured/${kind}`, 'POST', input),
+  remove: (itemId: string) =>
+    jsonRequest<{ showcase: Showcase }>(`/api/featured/${encodeURIComponent(itemId)}`, 'DELETE'),
+  move: (itemId: string, to: number) =>
+    jsonRequest<{ showcase: Showcase }>(
+      `/api/featured/${encodeURIComponent(itemId)}/move`,
+      'POST',
+      { to },
+    ),
+  setSlots: (input: { trackSlots?: SlotCount; artistSlots?: SlotCount; albumSlots?: SlotCount }) =>
+    jsonRequest<{ showcase: Showcase }>('/api/featured/slots', 'PUT', input),
+  /** Multipart, so the browser sets its own boundary; CSRF marker still goes. */
+  uploadArt: (itemId: string, file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return request<{ showcase: Showcase }>(
+      `/api/featured/${encodeURIComponent(itemId)}/art`,
+      { method: 'POST', headers: { 'X-Requested-With': 'boozie-archive' }, body: form },
+    );
+  },
+  clearArt: (itemId: string) =>
+    jsonRequest<{ showcase: Showcase }>(
+      `/api/featured/${encodeURIComponent(itemId)}/art`,
+      'DELETE',
+    ),
 };
 
 /**
