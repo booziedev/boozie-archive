@@ -6,6 +6,7 @@ import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import { config } from '../config.js';
 import { deleteImageFile, resolveImageFile, storeImage } from '../lib/images.js';
 import type { ProfileInput } from '../lib/social.js';
+import { forVisitor, getShowcase } from '../lib/showcase.js';
 import {
   acceptFriendRequest,
   currentAvatarUrl,
@@ -40,8 +41,18 @@ import { canListenAlong, statusFor, visibleStatuses } from '../lib/presence.js';
 export const socialRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
   // ------------------------------------------------------------- profiles
 
+  /*
+   * The showcase rides along with the profile rather than being fetched
+   * separately — the page always wants both — but it is attached here, in the
+   * route, not in the shared PROFILE_COLUMNS query. That query is reused by
+   * the friends list, the messenger and user search, where thirty extra rows
+   * per person would be pure waste.
+   */
   app.get('/profile/me', async (request) => ({
     profile: await getProfile(request.user!.id, request.user!.id),
+    // Your own showcase keeps its overflow picks, so the editor can show what
+    // a shorter list is currently hiding.
+    showcase: await getShowcase(request.user!.id),
   }));
 
   app.patch('/profile/me', async (request) => {
@@ -123,11 +134,15 @@ export const socialRoutes: FastifyPluginAsync = async (app: FastifyInstance) => 
     // Both fields apply the owner's own settings: the status is null unless
     // they show it to someone standing where this viewer is, and the flag is
     // what decides whether the Listen together button appears at all.
-    const [listeningNow, allowed] = await Promise.all([
+    const [listeningNow, allowed, showcase] = await Promise.all([
       statusFor(request.user!.id, profile.id),
       canListenAlong(request.user!.id, profile.id),
+      // Visible to any signed-in member, the same reach as a bio: a showcase
+      // is a statement somebody chose to make. The overflow picks are stripped
+      // — those are the owner's own business.
+      getShowcase(profile.id).then(forVisitor),
     ]);
-    return { profile: { ...profile, listeningNow, canListenAlong: allowed } };
+    return { profile: { ...profile, listeningNow, canListenAlong: allowed }, showcase };
   });
 
   app.get('/users/search', async (request) => {

@@ -22,6 +22,7 @@ import { playlistRoutes } from './routes/playlists.js';
 import { presenceRoutes } from './routes/presence.js';
 import { radioRoutes } from './routes/radio.js';
 import { scrobbleRoutes } from './routes/scrobbles.js';
+import { showcaseRoutes } from './routes/showcase.js';
 import { socialRoutes } from './routes/social.js';
 import { stickerRoutes } from './routes/stickers.js';
 import { suggestionRoutes } from './routes/suggestions.js';
@@ -123,11 +124,23 @@ async function main() {
     reply.header('X-Frame-Options', 'DENY');
 
     const pathname = request.url.split('?')[0] ?? '';
+    /*
+     * Routes that serve immutable bytes and set their own long cache header.
+     *
+     * Everything else under /api is no-store, because two accounts must never
+     * share a cached response. These are all content-addressed — a new image
+     * gets a new random name, or is named after a hash of itself — so caching
+     * them hard is safe and saves the Pi a great deal of work.
+     */
     const isMedia =
       pathname.startsWith('/api/stream/') ||
       pathname.startsWith('/api/download/') ||
       pathname.startsWith('/api/cover/') ||
-      pathname.startsWith('/api/avatar/');
+      pathname.startsWith('/api/avatar/') ||
+      pathname.startsWith('/api/playlist-cover/') ||
+      pathname.startsWith('/api/station-cover/') ||
+      pathname.startsWith('/api/featured-art/') ||
+      pathname.startsWith('/api/art/');
 
     if (pathname.startsWith('/api/') && !isMedia) {
       reply.header('Cache-Control', 'no-store, no-cache, must-revalidate, private');
@@ -186,6 +199,12 @@ async function main() {
     '/api/download/playlist/',
     '/api/radio',
     '/api/scrobbles',
+    // A showcase is about a person, not the library, so it stays behind an
+    // account even when ALLOW_PUBLIC_BROWSE opens the collection up.
+    '/api/featured',
+    '/api/featured-art/',
+    '/api/art/',
+    '/api/catalogue',
     '/api/suggestions',
     '/api/stickers/',
   ];
@@ -311,6 +330,7 @@ async function main() {
     await app.register(playlistRoutes, { prefix: '/api' });
     await app.register(radioRoutes, { prefix: '/api' });
     await app.register(scrobbleRoutes, { prefix: '/api' });
+    await app.register(showcaseRoutes, { prefix: '/api' });
     await app.register(stickerRoutes, { prefix: '/api' });
     await app.register(suggestionRoutes, { prefix: '/api' });
   }

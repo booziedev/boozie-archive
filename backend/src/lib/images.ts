@@ -20,7 +20,7 @@ import { AuthError } from './auth.js';
  * the point of not writing it three times.
  */
 
-export type ImageKind = 'avatar' | 'cover' | 'station';
+export type ImageKind = 'avatar' | 'cover' | 'station' | 'featured';
 
 interface KindConfig {
   dir: string;
@@ -48,6 +48,12 @@ const KINDS: Record<ImageKind, KindConfig> = {
     prefix: '/api/station-cover/',
     maxBytes: config.avatarMaxBytes,
     label: 'Station artwork',
+  },
+  featured: {
+    dir: config.featuredArtDir,
+    prefix: '/api/featured-art/',
+    maxBytes: config.avatarMaxBytes,
+    label: 'Featured artwork',
   },
 };
 

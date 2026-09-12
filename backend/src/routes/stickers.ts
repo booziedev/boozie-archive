@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 
 import { config, isAllowedMediaUrl } from '../config.js';
+import { TtlCache } from '../lib/cache.js';
 
 /**
  * GIF and emoji search, proxied.
@@ -27,31 +28,6 @@ interface EmojiResult {
   name: string;
   url: string;
   provider: 'emoji.gg';
-}
-
-/** Small in-memory cache: the same searches repeat constantly. */
-class TtlCache<T> {
-  private entries = new Map<string, { value: T; expiresAt: number }>();
-
-  constructor(private readonly ttlMs: number, private readonly max = 200) {}
-
-  get(key: string): T | undefined {
-    const entry = this.entries.get(key);
-    if (!entry) return undefined;
-    if (Date.now() > entry.expiresAt) {
-      this.entries.delete(key);
-      return undefined;
-    }
-    return entry.value;
-  }
-
-  set(key: string, value: T) {
-    if (this.entries.size >= this.max) {
-      const oldest = this.entries.keys().next().value;
-      if (oldest !== undefined) this.entries.delete(oldest);
-    }
-    this.entries.set(key, { value, expiresAt: Date.now() + this.ttlMs });
-  }
 }
 
 const gifCache = new TtlCache<GifResult[]>(10 * 60_000);

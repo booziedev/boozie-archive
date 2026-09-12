@@ -74,6 +74,23 @@ export const config = {
   playlistCoverDir: path.join(dataDir, 'playlist-covers'),
   /** Uploaded radio station art, served back via /api/station-cover/:file. */
   stationCoverDir: path.join(dataDir, 'station-covers'),
+  /** Artwork somebody uploaded for a featured item, via /api/featured-art/:file. */
+  featuredArtDir: path.join(dataDir, 'featured-art'),
+  /**
+   * Catalogue artwork this server has fetched and kept.
+   *
+   * Separate from the uploads above because the two have different lifetimes:
+   * an upload is somebody's own file and is deleted deliberately, while this
+   * is a disposable cache that can be emptied at any time and refills itself.
+   */
+  externalArtDir: path.join(dataDir, 'external-art'),
+  /**
+   * How many catalogue images to keep before evicting the least recently
+   * used. Unlike the album-cover cache, which is bounded by the size of the
+   * collection, this one grows with every search anybody runs — on an SD card
+   * that needs a ceiling.
+   */
+  externalArtCacheMax: int('EXTERNAL_ART_CACHE_MAX', 2000),
   /**
    * Suggested audio waits here — deliberately outside MUSIC_ROOT, so a file
    * nobody has reviewed is never indexed, streamed or downloadable.
@@ -221,6 +238,24 @@ export const config = {
   /** emoji.gg needs no key; set to false to hide that tab. */
   emojiGgEnabled: bool('EMOJI_GG_ENABLED', true),
 
+  // --- the music catalogue, for profile showcases --------------------------
+
+  /**
+   * Where to look up music this archive does not hold.
+   *
+   * Deezer's public search needs no key, no account and no OAuth, and unlike
+   * Last.fm it still serves real artist photographs — Last.fm replaced theirs
+   * with a placeholder star years ago over image rights, which rules it out
+   * for a feature whose whole point is showing faces and covers.
+   *
+   * Overridable so the search can be pointed at a stub in testing.
+   */
+  catalogueApiBase: str('CATALOGUE_API_BASE', 'https://api.deezer.com'),
+  /** Turn the catalogue off entirely; picks from the archive still work. */
+  catalogueEnabled: bool('CATALOGUE_ENABLED', true),
+  /** Catalogue searches one account may run per minute. */
+  catalogueSearchesPerMinute: int('CATALOGUE_SEARCHES_PER_MINUTE', 60),
+
   // --- listening from outside the archive ---------------------------------
 
   /**
@@ -265,6 +300,15 @@ export const ALLOWED_MEDIA_HOSTS = new Set([
   'cdn.emoji.gg',
   'cdn3.emoji.gg',
 ]);
+
+/**
+ * Hosts the catalogue serves artwork from.
+ *
+ * Only this server ever fetches these, and only by rebuilding the URL from a
+ * fixed template — nothing in a request ever names a host. The set is here as
+ * a second check on what the template can possibly resolve to.
+ */
+export const ALLOWED_ART_HOSTS = new Set(['cdn-images.dzcdn.net', 'e-cdns-images.dzcdn.net']);
 
 /** True when a URL is an https link to one of the allowed media hosts. */
 export function isAllowedMediaUrl(value: string): boolean {

@@ -659,4 +659,86 @@ export const migrations: Migration[] = [
         ADD COLUMN IF NOT EXISTS source text NOT NULL DEFAULT 'archive';
     `,
   },
+  {
+    id: '017_profile_showcase',
+    sql: /* sql */ `
+      /*
+       * The profile showcase: somebody's featured tracks, artists and albums.
+       *
+       * A pick is not limited to music this archive holds. Half the point of
+       * saying what your favourite album is, is that it might be one nobody
+       * here has a file for, so a row carries either a library id or a
+       * reference into a public catalogue.
+       *
+       * Labels are stored alongside either way. For a catalogue pick there is
+       * nowhere else for them to live, and for a library pick it means a
+       * re-scan that moves an id leaves the showcase readable instead of
+       * blank. Same reasoning as playlist_tracks and play_history.
+       */
+      CREATE TABLE IF NOT EXISTS profile_featured (
+        id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id    uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        kind       text NOT NULL CHECK (kind IN ('track', 'artist', 'album')),
+        position   integer NOT NULL,
+
+        source     text NOT NULL CHECK (source IN ('archive', 'deezer')),
+        -- An ar_/al_/tr_ id when source is 'archive'. No foreign key: ids come
+        -- from the in-memory index, which is why playlist_tracks has none either.
+        library_id text,
+        -- The catalogue's own id when source is 'deezer', so a pick can be
+        -- re-resolved later if its labels or artwork need refreshing.
+        source_id  text,
+
+        title      text NOT NULL,
+        subtitle   text,
+
+        /*
+         * Artwork.
+         *
+         * art_ref is a reference, never a URL — something like
+         * 'deezer:cover:<32 hex>' which this server turns into a request to
+         * its own cache. Storing a remote URL would mean every viewer's
+         * browser fetching it directly and handing their IP to the CDN, which
+         * is the thing ALLOWED_MEDIA_HOSTS exists to prevent.
+         *
+         * custom_art_url is an upload of the owner's own, and wins over it.
+         */
+        art_ref        text,
+        custom_art_url text,
+
+        created_at timestamptz NOT NULL DEFAULT now()
+      );
+
+      /*
+       * Ordering only, deliberately not unique on (user_id, kind, position):
+       * a reorder rewrites every position in one statement, which would trip a
+       * unique index halfway through. playlist_tracks_order_idx is the same.
+       */
+      CREATE INDEX IF NOT EXISTS profile_featured_order_idx
+        ON profile_featured (user_id, kind, position);
+
+      -- The same thing twice in one list is always a mistake.
+      CREATE UNIQUE INDEX IF NOT EXISTS profile_featured_archive_key
+        ON profile_featured (user_id, kind, library_id) WHERE library_id IS NOT NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS profile_featured_source_key
+        ON profile_featured (user_id, kind, source_id) WHERE source_id IS NOT NULL;
+
+      /*
+       * How many of each to show. Three separate sizes rather than one, so a
+       * top 10 of tracks can sit beside a top 3 of albums.
+       *
+       * Its own table rather than three more columns on users: these belong to
+       * the showcase, and users has already collected one vestigial column
+       * nobody reads. Rows are created on first edit, and every read
+       * COALESCEs to the defaults, so nothing needs backfilling.
+       */
+      CREATE TABLE IF NOT EXISTS profile_showcase (
+        user_id      uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        track_slots  smallint NOT NULL DEFAULT 5 CHECK (track_slots IN (3, 5, 10)),
+        artist_slots smallint NOT NULL DEFAULT 5 CHECK (artist_slots IN (3, 5, 10)),
+        album_slots  smallint NOT NULL DEFAULT 5 CHECK (album_slots IN (3, 5, 10)),
+        updated_at   timestamptz NOT NULL DEFAULT now()
+      );
+    `,
+  },
 ];
