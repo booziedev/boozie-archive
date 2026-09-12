@@ -68,6 +68,8 @@ export interface Playlist {
   role: PlaylistRole | null;
   /** Whether the viewer has kept this playlist in their library. */
   saved: boolean;
+  /** When they kept it. Null for one of their own. */
+  savedAt: string | null;
 }
 
 export interface PlaylistEntry {
@@ -109,6 +111,7 @@ interface PlaylistRow {
   /** The asking viewer's role, resolved by the query rather than a second trip. */
   viewer_role: PlaylistRole | null;
   viewer_saved: boolean;
+  viewer_saved_at: Date | null;
 }
 
 /**
@@ -129,7 +132,12 @@ const SELECT = /* sql */ `
          (SELECT m.role FROM playlist_members m
            WHERE m.playlist_id = p.id AND m.user_id = $1::uuid) AS viewer_role,
          EXISTS (SELECT 1 FROM playlist_saves s
-                  WHERE s.playlist_id = p.id AND s.user_id = $1::uuid) AS viewer_saved
+                  WHERE s.playlist_id = p.id AND s.user_id = $1::uuid) AS viewer_saved,
+         -- When they kept it, so a library sorted by "recently added" puts a
+         -- playlist where the viewer put it rather than where its owner last
+         -- happened to edit it.
+         (SELECT s.saved_at FROM playlist_saves s
+           WHERE s.playlist_id = p.id AND s.user_id = $1::uuid) AS viewer_saved_at
     FROM playlists p
     JOIN users u ON u.id = p.owner_id
 `;
@@ -156,6 +164,7 @@ function toPlaylist(row: PlaylistRow, viewerId: string, canEdit: boolean): Playl
     isOwner: row.owner_id === viewerId,
     role: row.viewer_role,
     saved: row.viewer_saved,
+    savedAt: row.viewer_saved_at?.toISOString() ?? null,
   };
 }
 

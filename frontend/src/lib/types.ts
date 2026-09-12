@@ -451,6 +451,8 @@ export interface Playlist {
   role: PlaylistRole | null;
   /** Whether they have kept it in their library. */
   saved: boolean;
+  /** When they kept it. Null for one of their own. */
+  savedAt: string | null;
 }
 
 export interface PlaylistEntry {
@@ -647,4 +649,27 @@ export interface CandidateResults {
   catalogue: FeaturedCandidate[];
   /** Set when the catalogue half failed; the archive half still answered. */
   catalogueError: string | null;
+}
+
+// ----------------------------------------------------------------- favourites
+
+export type FavouriteKind = 'track' | 'album' | 'artist';
+
+/**
+ * A saved entity, with when it was saved.
+ *
+ * Deliberately not `addedAt` — albums and artists already carry one of those,
+ * meaning when the file arrived in the archive rather than when you kept it.
+ */
+export type Saved<T> = T & { savedAt: string };
+
+export interface Favourites {
+  /** Bare ids, so a heart anywhere can answer without a lookup. */
+  ids: Record<FavouriteKind, string[]>;
+  /** The same things resolved, newest first, for the Library grid. */
+  items: {
+    tracks: Saved<Track>[];
+    albums: Saved<Album>[];
+    artists: Saved<Artist>[];
+  };
 }

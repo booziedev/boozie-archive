@@ -1,5 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
-import { Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes } from 'react-router-dom';
 import { Disc3 } from 'lucide-react';
 
 import { Layout } from './components/Layout';
@@ -14,11 +14,11 @@ import { MaintenancePage } from './pages/MaintenancePage';
 import { MessagesPage } from './pages/MessagesPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { ArtistsPage } from './pages/ArtistsPage';
-import { FavouritesPage } from './pages/FavouritesPage';
 import { HomePage } from './pages/HomePage';
 import { NotFoundPage } from './pages/NotFoundPage';
+import { LibraryPage } from './pages/LibraryPage';
+import { LikedSongsPage } from './pages/LikedSongsPage';
 import { PlaylistPage } from './pages/PlaylistPage';
-import { PlaylistsPage } from './pages/PlaylistsPage';
 import { RadioPage } from './pages/RadioPage';
 import { TimedOutPage } from './pages/TimedOutPage';
 import { SearchPage } from './pages/SearchPage';
@@ -142,12 +142,20 @@ export function App() {
           <Route path="/tracks" element={<TracksPage />} />
           <Route path="/search" element={<SearchPage />} />
           <Route path="/radio" element={<RadioPage />} />
-          <Route path="/playlists" element={<PlaylistsPage />} />
+          <Route path="/library" element={<LibraryPage />} />
+          <Route path="/library/liked" element={<LikedSongsPage />} />
           <Route path="/playlists/:id" element={<PlaylistPage />} />
-          <Route path="/favourites" element={<FavouritesPage />} />
           <Route path="/recap" element={<RecapPage />} />
-          {/* Kept so US spelling links don't 404. */}
-          <Route path="/favorites" element={<FavouritesPage />} />
+          {/*
+            Favourites and Playlists became one Library. Kept as redirects
+            rather than dropped: these are in people's history and on the
+            other end of links they have already shared. /favorites was
+            already an alias for the US spelling.
+          */}
+          <Route path="/favourites" element={<Navigate to="/library" replace />} />
+          <Route path="/favorites" element={<Navigate to="/library" replace />} />
+          <Route path="/playlists" element={<Navigate to="/library" replace />} />
+
           <Route path="/friends" element={<FriendsPage />} />
           <Route path="/messages" element={<MessagesPage />} />
           <Route path="/messages/:friendId" element={<MessagesPage />} />

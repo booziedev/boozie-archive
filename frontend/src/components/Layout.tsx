@@ -2,11 +2,10 @@ import { useEffect, useLayoutEffect, useRef } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import {
   Disc3,
-  Heart,
   Home,
+  Library as LibraryIcon,
   LogOut,
   Lightbulb,
-  ListMusic,
   Radio,
   MessageSquare,
   Music2,
@@ -30,22 +29,21 @@ import { Logo } from './Logo';
 import { social } from '../lib/api';
 import { useStats } from '../hooks/useLibrary';
 import { useAuth } from '../context/AuthContext';
-import { useFavorites } from '../context/FavoritesContext';
 import { formatBytes, formatNumber, formatRuntime } from '../lib/format';
 import { siteName } from '../lib/config';
 
-const NAV = [
+/** Browsing the collection. Everything here is the archive, not you. */
+const BROWSE_NAV = [
   { to: '/', label: 'Home', icon: Home, end: true },
   { to: '/artists', label: 'Artists', icon: Users, end: false },
   { to: '/albums', label: 'Albums', icon: Disc3, end: false },
   { to: '/tracks', label: 'Tracks', icon: Music2, end: false },
   { to: '/radio', label: 'Radio', icon: Radio, end: false },
-  { to: '/playlists', label: 'Playlists', icon: ListMusic, end: false },
-  { to: '/favourites', label: 'Favourites', icon: Heart, end: false },
 ] as const;
 
-/** Only meaningful with an account, since the play log belongs to one. */
-const ACCOUNT_NAV = [
+/** Yours. Only meaningful with an account, since both belong to one. */
+const LIBRARY_NAV = [
+  { to: '/library', label: 'Library', icon: LibraryIcon },
   { to: '/recap', label: 'Your listening', icon: BarChart3 },
 ] as const;
 
@@ -56,6 +54,25 @@ const SOCIAL_NAV = [
   { to: '/suggestions', label: 'Suggestions', icon: Lightbulb, badge: null },
 ] as const;
 
+/**
+ * The phone's tab bar, and the one list that must never grow.
+ *
+ * Five is what fits at 320px without the labels clipping. This used to render
+ * the whole browse list — seven items — while a comment two files over
+ * insisted five was the ceiling. Keeping it separate rather than deriving it
+ * makes the limit something you would have to break on purpose.
+ *
+ * Tracks is the one that comes off: the header search finds a track faster
+ * than a tab does, and Albums and Artists both lead to them.
+ */
+const MOBILE_NAV = [
+  { to: '/', label: 'Home', icon: Home, end: true },
+  { to: '/artists', label: 'Artists', icon: Users, end: false },
+  { to: '/albums', label: 'Albums', icon: Disc3, end: false },
+  { to: '/radio', label: 'Radio', icon: Radio, end: false },
+  { to: '/library', label: 'Library', icon: LibraryIcon, end: false },
+] as const;
+
 /** Small count pill shown next to a nav entry. */
 function NavBadge({ count }: { count: number }) {
   if (count <= 0) return null;
@@ -63,6 +80,54 @@ function NavBadge({ count }: { count: number }) {
     <span className="ml-auto rounded-full bg-accent-500 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-white">
       {count > 99 ? '99+' : count}
     </span>
+  );
+}
+
+/**
+ * One sidebar row.
+ *
+ * The className and the active-edge indicator were written out three times,
+ * once per nav group, so every tweak had to be made in all three or they
+ * drifted apart.
+ */
+function SidebarLink({
+  to,
+  label,
+  icon: Icon,
+  end,
+  badge,
+}: {
+  to: string;
+  label: string;
+  icon: typeof Home;
+  end?: boolean;
+  badge?: number;
+}) {
+  return (
+    <NavLink
+      to={to}
+      end={end}
+      className={({ isActive }) =>
+        `group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200 ease-vault ${
+          isActive
+            ? 'bg-white/[0.06] text-white'
+            : 'text-zinc-500 hover:bg-white/[0.03] hover:text-zinc-200'
+        }`
+      }
+    >
+      {({ isActive }) => (
+        <>
+          <span
+            className={`absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-r-full bg-accent-500 transition-opacity duration-200 ${
+              isActive ? 'opacity-100' : 'opacity-0'
+            }`}
+          />
+          <Icon size={18} strokeWidth={2} />
+          {label}
+          {badge !== undefined && <NavBadge count={badge} />}
+        </>
+      )}
+    </NavLink>
   );
 }
 
@@ -77,7 +142,6 @@ function withoutPagination(search: string): string {
 /** App shell: sidebar (desktop), top bar, bottom tab bar (mobile) and player. */
 export function Layout() {
   const { data: stats } = useStats();
-  const { favorites } = useFavorites();
   const { user, isAdmin, info, signOut } = useAuth();
   const location = useLocation();
 
@@ -153,9 +217,6 @@ export function Layout() {
     window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior });
   }, [scrollKey]);
 
-  const favouriteCount =
-    favorites.track.length + favorites.album.length + favorites.artist.length;
-
   return (
     <div className="min-h-[100dvh]">
       {/* ---------------------------- sidebar ---------------------------- */}
@@ -172,91 +233,19 @@ export function Layout() {
         </div>
 
         <nav className="flex-1 space-y-1 px-3">
-          {[...NAV].map(({ to, label, icon: Icon, end }) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={end}
-              className={({ isActive }) =>
-                `group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200 ease-vault ${
-                  isActive
-                    ? 'bg-white/[0.06] text-white'
-                    : 'text-zinc-500 hover:bg-white/[0.03] hover:text-zinc-200'
-                }`
-              }
-            >
-              {({ isActive }) => (
-                <>
-                  <span
-                    className={`absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-r-full bg-accent-500 transition-opacity duration-200 ${
-                      isActive ? 'opacity-100' : 'opacity-0'
-                    }`}
-                  />
-                  <Icon size={18} strokeWidth={2} />
-                  {label}
-                  {to === '/favourites' && favouriteCount > 0 && (
-                    <span className="ml-auto rounded-full bg-white/10 px-2 py-0.5 text-[10px] tabular-nums text-zinc-300">
-                      {favouriteCount}
-                    </span>
-                  )}
-                </>
-              )}
-            </NavLink>
+          {BROWSE_NAV.map((item) => (
+            <SidebarLink key={item.to} {...item} />
           ))}
 
           {user && (
             <>
               <hr className="!my-3 border-white/5" />
-              {ACCOUNT_NAV.map(({ to, label, icon: Icon }) => (
-                <NavLink
-                  key={to}
-                  to={to}
-                  className={({ isActive }) =>
-                    `group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200 ease-vault ${
-                      isActive
-                        ? 'bg-white/[0.06] text-white'
-                        : 'text-zinc-500 hover:bg-white/[0.03] hover:text-zinc-200'
-                    }`
-                  }
-                >
-                  {({ isActive }) => (
-                    <>
-                      <span
-                        className={`absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-r-full bg-accent-500 transition-opacity duration-200 ${
-                          isActive ? 'opacity-100' : 'opacity-0'
-                        }`}
-                      />
-                      <Icon size={18} strokeWidth={2} />
-                      {label}
-                    </>
-                  )}
-                </NavLink>
+              {LIBRARY_NAV.map((item) => (
+                <SidebarLink key={item.to} {...item} />
               ))}
-              {SOCIAL_NAV.map(({ to, label, icon: Icon, badge }) => (
-                <NavLink
-                  key={to}
-                  to={to}
-                  className={({ isActive }) =>
-                    `group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200 ease-vault ${
-                      isActive
-                        ? 'bg-white/[0.06] text-white'
-                        : 'text-zinc-500 hover:bg-white/[0.03] hover:text-zinc-200'
-                    }`
-                  }
-                >
-                  {({ isActive }) => (
-                    <>
-                      <span
-                        className={`absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-r-full bg-accent-500 transition-opacity duration-200 ${
-                          isActive ? 'opacity-100' : 'opacity-0'
-                        }`}
-                      />
-                      <Icon size={18} strokeWidth={2} />
-                      {label}
-                      {badge && <NavBadge count={badges[badge]} />}
-                    </>
-                  )}
-                </NavLink>
+              <hr className="!my-3 border-white/5" />
+              {SOCIAL_NAV.map(({ badge, ...item }) => (
+                <SidebarLink key={item.to} {...item} badge={badge ? badges[badge] : undefined} />
               ))}
             </>
           )}
@@ -394,7 +383,7 @@ export function Layout() {
 
         <nav className="pointer-events-auto border-t border-white/5 bg-ink-900/90 backdrop-blur-2xl lg:hidden">
         <div className="flex items-stretch justify-around pb-[max(0.25rem,env(safe-area-inset-bottom))] pt-1.5">
-          {NAV.map(({ to, label, icon: Icon, end }) => (
+          {MOBILE_NAV.map(({ to, label, icon: Icon, end }) => (
             <NavLink
               key={to}
               to={to}

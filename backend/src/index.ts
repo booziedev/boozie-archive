@@ -15,6 +15,7 @@ import { startScrobblePoller } from './lib/scrobbles.js';
 import { apiRoutes } from './routes/api.js';
 import { adminRoutes } from './routes/admin.js';
 import { authRoutes, inviteThrottle, loginThrottle } from './routes/auth.js';
+import { favouriteRoutes } from './routes/favourites.js';
 import { describeFrontendBuild } from './lib/build.js';
 import { historyRoutes } from './routes/history.js';
 import { mediaRoutes } from './routes/media.js';
@@ -191,6 +192,7 @@ async function main() {
     '/api/presence',
     '/api/parties',
     '/api/history',
+    '/api/favourites',
     '/api/playlists',
     '/api/playlist-cover/',
     '/api/station-cover/',
@@ -327,6 +329,7 @@ async function main() {
     await app.register(socialRoutes, { prefix: '/api' });
     await app.register(presenceRoutes, { prefix: '/api' });
     await app.register(historyRoutes, { prefix: '/api' });
+    await app.register(favouriteRoutes, { prefix: '/api' });
     await app.register(playlistRoutes, { prefix: '/api' });
     await app.register(radioRoutes, { prefix: '/api' });
     await app.register(scrobbleRoutes, { prefix: '/api' });

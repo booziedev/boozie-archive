@@ -45,6 +45,8 @@ import type {
   Track,
   CandidateResults,
   ExternalPlay,
+  Favourites,
+  FavouriteKind,
   ExternalSummary,
   FeaturedKind,
   Showcase,
@@ -389,6 +391,30 @@ export const history = {
   recap: (range: HistoryRange = 'year') =>
     request<{ recap: Recap }>(`/api/history/recap?range=${range}`),
   clear: () => jsonRequest<{ deleted: number }>('/api/history', 'DELETE'),
+};
+
+/**
+ * Favourites — the hearts on tracks, albums and artists.
+ *
+ * Every call is about the signed-in account, and every write returns the whole
+ * set back so an optimistic toggle has something exact to reconcile against.
+ */
+export const favourites = {
+  list: () => request<{ favourites: Favourites }>('/api/favourites'),
+  add: (kind: FavouriteKind, id: string) =>
+    jsonRequest<{ favourites: Favourites }>(
+      `/api/favourites/${kind}/${encodeURIComponent(id)}`,
+      'PUT',
+    ),
+  remove: (kind: FavouriteKind, id: string) =>
+    jsonRequest<{ favourites: Favourites }>(
+      `/api/favourites/${kind}/${encodeURIComponent(id)}`,
+      'DELETE',
+    ),
+  clear: () => jsonRequest<{ deleted: number }>('/api/favourites', 'DELETE'),
+  /** Folds in whatever this browser was still holding. Safe to repeat. */
+  import: (ids: Partial<Record<FavouriteKind, string[]>>) =>
+    jsonRequest<{ favourites: Favourites }>('/api/favourites/import', 'POST', ids),
 };
 
 /**

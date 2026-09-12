@@ -741,4 +741,35 @@ export const migrations: Migration[] = [
       );
     `,
   },
+  {
+    id: '018_favourites',
+    sql: /* sql */ `
+      /*
+       * Favourites, at last kept by the server.
+       *
+       * These lived in localStorage until now, which meant they were really
+       * per-browser rather than per-person: hearting an album on a phone left
+       * no trace on a laptop, and the page had to admit as much in its own
+       * subtitle. Anything calling itself a library has to follow the account.
+       *
+       * Only ids are stored. They come from the in-memory index, so there is
+       * no foreign key here for the same reason playlist_tracks has none, and
+       * a row whose id stops resolving is kept rather than deleted — a rescan
+       * that moves an id should not quietly throw away what somebody saved.
+       *
+       * The primary key is what makes hearting twice a no-op, and what lets
+       * the one-time import from the browser be re-run safely.
+       */
+      CREATE TABLE IF NOT EXISTS favourites (
+        user_id    uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        kind       text NOT NULL CHECK (kind IN ('track', 'album', 'artist')),
+        item_id    text NOT NULL,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        PRIMARY KEY (user_id, kind, item_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS favourites_user_idx
+        ON favourites (user_id, kind, created_at DESC);
+    `,
+  },
 ];

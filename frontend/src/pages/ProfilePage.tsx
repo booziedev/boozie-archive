@@ -15,10 +15,10 @@ import {
 import { Avatar } from '../components/Avatar';
 import { FeaturedShowcase } from '../components/FeaturedShowcase';
 import { ListeningNow } from '../components/ListeningNow';
+import { PlaylistCard } from '../components/PlaylistCard';
 import { ShowcaseEditor } from '../components/ShowcaseEditor';
 import { ErrorState } from '../components/states';
 import { playlists, social } from '../lib/api';
-import { PlaylistCard } from './PlaylistsPage';
 import { useAuth } from '../context/AuthContext';
 import { usePresence } from '../context/PresenceContext';
 import { formatDate } from '../lib/format';

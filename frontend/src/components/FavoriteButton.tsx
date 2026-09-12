@@ -1,5 +1,6 @@
 import { Heart } from 'lucide-react';
 
+import { useAuth } from '../context/AuthContext';
 import { useFavorites, type FavoriteKind } from '../context/FavoritesContext';
 
 interface FavoriteButtonProps {
@@ -10,9 +11,18 @@ interface FavoriteButtonProps {
   size?: number;
 }
 
-/** Star/heart toggle used on cards, track rows and detail headers. */
+/**
+ * Heart toggle used on cards, track rows and detail headers.
+ *
+ * Absent when nobody is signed in. Favourites belong to an account now, so
+ * there would be nowhere to put one — and a heart that silently does nothing
+ * is worse than no heart at all.
+ */
 export function FavoriteButton({ kind, id, label, className = '', size = 18 }: FavoriteButtonProps) {
+  const { user } = useAuth();
   const { isFavorite, toggle } = useFavorites();
+  if (!user) return null;
+
   const active = isFavorite(kind, id);
 
   return (
