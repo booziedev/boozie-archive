@@ -5,6 +5,7 @@ import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 
 import { config } from '../config.js';
 import { deleteImageFile, resolveImageFile, storeImage } from '../lib/images.js';
+import type { ProfileInput } from '../lib/social.js';
 import {
   acceptFriendRequest,
   currentAvatarUrl,
@@ -44,12 +45,7 @@ export const socialRoutes: FastifyPluginAsync = async (app: FastifyInstance) => 
   }));
 
   app.patch('/profile/me', async (request) => {
-    const body = (request.body ?? {}) as {
-      displayName?: string | null;
-      bio?: string | null;
-      avatarUrl?: string | null;
-      accentColor?: string | null;
-    };
+    const body = (request.body ?? {}) as ProfileInput;
     return { profile: await updateProfile(request.user!.id, body) };
   });
 
@@ -104,9 +100,11 @@ export const socialRoutes: FastifyPluginAsync = async (app: FastifyInstance) => 
 
     const previous = await currentAvatarUrl(request.user!.id);
     const stored = await storeImage('avatar', buffer);
-    const { profile } = { profile: await updateProfile(request.user!.id, { avatarUrl: stored.url }) };
+    // Only the avatar is sent, and only the avatar changes — updateProfile
+    // touches the fields it was given and leaves the rest alone.
+    const profile = await updateProfile(request.user!.id, { avatarUrl: stored.url });
 
-    // Only once the new one is safely on the account.
+    // Delete the old file only once the new one is safely on the account.
     await deleteImageFile(previous).catch(() => undefined);
     return reply.code(201).send({ profile });
   });

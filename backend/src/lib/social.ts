@@ -131,10 +131,32 @@ export async function currentAvatarUrl(userId: string): Promise<string | null> {
   return rows[0]?.avatar_url ?? null;
 }
 
+export interface ProfileInput {
+  displayName?: string | null;
+  bio?: string | null;
+  avatarUrl?: string | null;
+  accentColor?: string | null;
+}
+
+/**
+ * Edits a profile, touching only the fields that were actually sent.
+ *
+ * The distinction that matters is *present but empty* versus *absent*. Sending
+ * an empty bio means "clear my bio"; not sending one at all means "leave it
+ * alone". This used to write all four columns on every call, so a request
+ * carrying one field silently wiped the other three — uploading a profile
+ * picture erased your bio, because the upload route only sends an avatar.
+ *
+ * Written as CASE expressions over a `provided` flag per column rather than a
+ * dynamically assembled SET list: the SQL stays one fixed string that can be
+ * read and checked, and no column name is ever built from input.
+ */
 export async function updateProfile(
   userId: string,
-  input: { displayName?: string | null; bio?: string | null; avatarUrl?: string | null; accentColor?: string | null },
+  input: ProfileInput,
 ): Promise<PublicProfile> {
+  const sent = (field: keyof ProfileInput) => Object.prototype.hasOwnProperty.call(input, field);
+
   const displayName = input.displayName?.trim() || null;
   const bio = input.bio?.trim() || null;
   const avatarUrl = input.avatarUrl?.trim() || null;
@@ -162,11 +184,20 @@ export async function updateProfile(
 
   const { rows } = await pool.query<ProfileRow>(
     `UPDATE users
-        SET display_name = $2, bio = $3, avatar_url = $4, accent_color = $5,
+        SET display_name = CASE WHEN $2 THEN $3 ELSE display_name END,
+            bio          = CASE WHEN $4 THEN $5 ELSE bio END,
+            avatar_url   = CASE WHEN $6 THEN $7 ELSE avatar_url END,
+            accent_color = CASE WHEN $8 THEN $9 ELSE accent_color END,
             profile_updated_at = now()
       WHERE id = $1
       RETURNING ${PROFILE_COLUMNS}`,
-    [userId, displayName, bio, avatarUrl, accentColor],
+    [
+      userId,
+      sent('displayName'), displayName,
+      sent('bio'), bio,
+      sent('avatarUrl'), avatarUrl,
+      sent('accentColor'), accentColor,
+    ],
   );
   if (!rows[0]) throw new AuthError('Account not found.', 404, 'not_found');
   return toProfile(rows[0], 'none');
