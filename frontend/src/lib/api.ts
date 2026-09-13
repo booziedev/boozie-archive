@@ -380,10 +380,6 @@ export const history = {
   /** Reports a play that lasted long enough to count. */
   record: (play: PlayInput) => jsonRequest<{ play: PlayRecord }>('/api/history', 'POST', { play }),
   recent: (limit = 20) => request<{ plays: PlayRecord[] }>(`/api/history/recent?limit=${limit}`),
-  counts: (trackIds: string[]) =>
-    request<{ counts: Record<string, number> }>(
-      `/api/history/counts?ids=${encodeURIComponent(trackIds.join(','))}`,
-    ),
   top: (kind: 'track' | 'artist' | 'album', range: HistoryRange = 'month', limit = 20) =>
     request<{ entries: TopEntry[] }>(
       `/api/history/top?kind=${kind}&range=${range}&limit=${limit}`,

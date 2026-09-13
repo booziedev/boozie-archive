@@ -240,6 +240,20 @@
   }
 
   /*
+   * The panel of a modal dialog.
+   *
+   * Same shape as `.surface` but genuinely opaque. A dialog used to borrow
+   * `.surface`, whose 70% background let the page read straight through the
+   * panel — dimming the page behind is the backdrop's job, and a translucent
+   * modal just looks like a rendering fault. No `backdrop-blur` either: it
+   * buys nothing under an opaque fill and would make the panel a containing
+   * block for anything fixed inside it.
+   */
+  .surface-dialog {
+    @apply rounded-2xl border border-white/10 bg-ink-850 shadow-lift;
+  }
+
+  /*
    * A vertical EQ band slider.
    *
    * `writing-mode: vertical-lr` with a flipped direction is the modern way to

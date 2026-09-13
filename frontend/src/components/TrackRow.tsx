@@ -2,9 +2,8 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Download, Info, ListPlus, Pause, Play } from 'lucide-react';
 
-import { AddToPlaylist } from './AddToPlaylist';
 import { CoverImage } from './CoverImage';
-import { FavoriteButton } from './FavoriteButton';
+import { SaveTrackButton } from './SaveTrackButton';
 import { ShareButton } from './ShareDialog';
 import { TrackDetails } from './TrackDetails';
 import { mediaUrl } from '../lib/api';
@@ -19,8 +18,6 @@ interface TrackRowProps {
   index: number;
   /** Album view shows track numbers; search results show cover thumbnails. */
   variant?: 'album' | 'flat';
-  /** How many times this account has played it, when the list knows. */
-  playCount?: number;
 }
 
 /** Animated bars shown in place of the track number while it is playing. */
@@ -38,13 +35,14 @@ function NowPlayingBars() {
   );
 }
 
-export function TrackRow({ track, tracks, index, variant = 'flat', playCount }: TrackRowProps) {
+export function TrackRow({ track, tracks, index, variant = 'flat' }: TrackRowProps) {
   const { current, isPlaying, playTracks, toggle, enqueue } = usePlayer();
   const [detailsOpen, setDetailsOpen] = useState(false);
   const isCurrent = current?.id === track.id;
   const hiRes = isHiRes(track);
+  const isAlbumList = variant === 'album';
   // On an album page every row would otherwise repeat the album artist.
-  const hideArtist = variant === 'album' && track.artist === track.albumArtist;
+  const hideArtist = isAlbumList && track.artist === track.albumArtist;
 
   function handlePlay() {
     if (isCurrent) toggle();
@@ -137,20 +135,29 @@ export function TrackRow({ track, tracks, index, variant = 'flat', playCount }: 
 
       {/* Badges + actions + duration. */}
       <div className="flex items-center gap-1 sm:gap-2">
-        <span
-          className={`hidden rounded-md px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide lg:inline-block ${
-            hiRes
-              ? 'bg-amber-400/10 text-amber-300'
-              : track.lossless
-                ? 'bg-emerald-400/10 text-emerald-300'
-                : 'bg-white/5 text-zinc-500'
-          }`}
-          title={`${track.codec ?? track.ext.toUpperCase()}${
-            track.bitrate ? ` · ${Math.round(track.bitrate / 1000)} kbps` : ''
-          }`}
-        >
-          {qualityLabel(track)}
-        </span>
+        {/*
+          An album page carries a Files table under the list with the format,
+          the bitrate, the size and a download for every track — so repeating
+          any of it on the rows above is noise in the place people are trying
+          to read song titles. Elsewhere there is no such table, and the row is
+          the only place that information can live.
+        */}
+        {!isAlbumList && (
+          <span
+            className={`hidden rounded-md px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide lg:inline-block ${
+              hiRes
+                ? 'bg-amber-400/10 text-amber-300'
+                : track.lossless
+                  ? 'bg-emerald-400/10 text-emerald-300'
+                  : 'bg-white/5 text-zinc-500'
+            }`}
+            title={`${track.codec ?? track.ext.toUpperCase()}${
+              track.bitrate ? ` · ${Math.round(track.bitrate / 1000)} kbps` : ''
+            }`}
+          >
+            {qualityLabel(track)}
+          </span>
+        )}
 
         <div className="flex items-center opacity-0 transition-opacity duration-200 focus-within:opacity-100 group-hover:opacity-100 max-sm:opacity-100">
           <button
@@ -171,20 +178,21 @@ export function TrackRow({ track, tracks, index, variant = 'flat', playCount }: 
           >
             <ListPlus size={16} />
           </button>
-          <span className="hidden sm:inline-flex">
-            <AddToPlaylist trackIds={[track.id]} />
-          </span>
-          <a
-            href={mediaUrl.download(track.id)}
-            download
-            onClick={(event) => event.stopPropagation()}
-            title="Download"
-            aria-label={`Download ${track.title}`}
-            className="icon-btn h-9 w-9"
-          >
-            <Download size={16} />
-          </a>
-          <FavoriteButton kind="track" id={track.id} label={track.title} className="h-9 w-9" size={16} />
+          {!isAlbumList && (
+            <a
+              href={mediaUrl.download(track.id)}
+              download
+              onClick={(event) => event.stopPropagation()}
+              title="Download"
+              aria-label={`Download ${track.title}`}
+              className="icon-btn h-9 w-9"
+            >
+              <Download size={16} />
+            </a>
+          )}
+          {/* One heart for Liked Songs and every playlist — the two used to be
+              separate buttons asking the same question. */}
+          <SaveTrackButton trackId={track.id} title={track.title} />
           <span className="hidden sm:inline-flex">
             <ShareButton
               attachment={{
@@ -198,17 +206,6 @@ export function TrackRow({ track, tracks, index, variant = 'flat', playCount }: 
             />
           </span>
         </div>
-
-        {/* Play count, where the list has fetched one. Hidden on the narrowest
-            screens, where the row has no width to spare. */}
-        {playCount !== undefined && playCount > 0 && (
-          <span
-            className="hidden w-10 shrink-0 text-right text-xs tabular-nums text-zinc-600 sm:block"
-            title={`Played ${playCount} ${playCount === 1 ? 'time' : 'times'}`}
-          >
-            {playCount}×
-          </span>
-        )}
 
         <span className="w-11 shrink-0 text-right text-xs tabular-nums text-zinc-500">
           {formatDuration(track.duration)}

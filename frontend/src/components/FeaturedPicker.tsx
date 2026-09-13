@@ -3,6 +3,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { Check, Globe, Library, Loader2, Plus, Search, X } from 'lucide-react';
 
 import { CoverImage } from './CoverImage';
+import { Portal } from './Portal';
 import { useDebounced } from '../hooks/useDebounced';
 import { showcase as api } from '../lib/api';
 import type { FeaturedCandidate, FeaturedKind, Showcase } from '../lib/types';
@@ -167,114 +168,119 @@ export function FeaturedPicker({
   const nothing = searching && !results.isFetching && archive.length === 0 && catalogue.length === 0;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-4">
-      <div
-        role="presentation"
-        onClick={onClose}
-        className="absolute inset-0 bg-black/70 backdrop-blur-sm animate-fade-in"
-      />
+    <Portal>
+      <div className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-4">
+        <div
+          role="presentation"
+          onClick={onClose}
+          /* `fixed`, not `absolute`: the root has `sm:p-4`, so an absolutely
+             positioned backdrop resolves against its padding box and leaves a
+             16px frame of undimmed page around the dialog. */
+          className="fixed inset-0 bg-black/70 backdrop-blur-sm animate-fade-in"
+        />
 
-      <div className="surface relative flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-b-none sm:rounded-2xl animate-scale-in">
-        <header className="flex items-center justify-between border-b border-white/5 px-4 py-3">
-          <span className="text-sm font-semibold text-zinc-200">Feature {NOUNS[kind]}</span>
-          <button type="button" onClick={onClose} aria-label="Close" className="icon-btn h-8 w-8">
-            <X size={16} />
-          </button>
-        </header>
+        <div className="surface-dialog relative flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-b-none sm:rounded-2xl animate-scale-in">
+          <header className="flex items-center justify-between border-b border-white/5 px-4 py-3">
+            <span className="text-sm font-semibold text-zinc-200">Feature {NOUNS[kind]}</span>
+            <button type="button" onClick={onClose} aria-label="Close" className="icon-btn h-8 w-8">
+              <X size={16} />
+            </button>
+          </header>
 
-        <div className="border-b border-white/5 p-3">
-          <div className="relative">
-            <Search
-              size={15}
-              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600"
-            />
-            <input
-              type="search"
-              value={term}
-              onChange={(event) => setTerm(event.target.value)}
-              autoFocus
-              enterKeyHint="search"
-              autoComplete="off"
-              autoCorrect="off"
-              spellCheck={false}
-              placeholder="Search anything — here or anywhere"
-              className="w-full rounded-xl border border-white/10 bg-white/[0.04] py-2 pl-9 pr-9 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-accent-500/50 focus:outline-none [&::-webkit-search-cancel-button]:hidden"
-            />
-            {results.isFetching && (
-              <Loader2
+          <div className="border-b border-white/5 p-3">
+            <div className="relative">
+              <Search
                 size={15}
-                className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-zinc-600"
+                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600"
               />
+              <input
+                type="search"
+                value={term}
+                onChange={(event) => setTerm(event.target.value)}
+                autoFocus
+                enterKeyHint="search"
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck={false}
+                placeholder="Search anything — here or anywhere"
+                className="w-full rounded-xl border border-white/10 bg-white/[0.04] py-2 pl-9 pr-9 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-accent-500/50 focus:outline-none [&::-webkit-search-cancel-button]:hidden"
+              />
+              {results.isFetching && (
+                <Loader2
+                  size={15}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-zinc-600"
+                />
+              )}
+            </div>
+
+            {full && (
+              <p className="mt-2 text-xs text-amber-200/70">
+                This list is full at {list.slots}. Remove something, or make the list longer.
+              </p>
             )}
           </div>
 
-          {full && (
-            <p className="mt-2 text-xs text-amber-200/70">
-              This list is full at {list.slots}. Remove something, or make the list longer.
-            </p>
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+            {!searching ? (
+              <p className="px-3 py-8 text-center text-sm leading-relaxed text-zinc-500">
+                Type at least two letters.
+                <span className="mt-1 block text-xs text-zinc-600">
+                  Anything in this archive comes up first, then everything else.
+                </span>
+              </p>
+            ) : nothing ? (
+              <p className="px-3 py-8 text-center text-sm text-zinc-500">
+                Nothing found for “{debounced}”.
+              </p>
+            ) : (
+              <>
+                {archive.length > 0 && (
+                  <Group icon={<Library size={11} />} title="In your archive">
+                    {archive.map((candidate) => (
+                      <Row
+                        key={`a-${candidate.id}`}
+                        candidate={candidate}
+                        taken={isTaken(candidate)}
+                        pending={add.isPending && add.variables?.id === candidate.id}
+                        onAdd={() => add.mutate(candidate)}
+                      />
+                    ))}
+                  </Group>
+                )}
+
+                {catalogue.length > 0 && (
+                  <Group
+                    icon={<Globe size={11} />}
+                    title="Everywhere else"
+                    hint="· can't be played here"
+                  >
+                    {catalogue.map((candidate) => (
+                      <Row
+                        key={`c-${candidate.id}`}
+                        candidate={candidate}
+                        taken={isTaken(candidate)}
+                        pending={add.isPending && add.variables?.id === candidate.id}
+                        onAdd={() => add.mutate(candidate)}
+                      />
+                    ))}
+                  </Group>
+                )}
+
+                {results.data?.catalogueError && (
+                  <p className="px-3 py-3 text-center text-xs leading-relaxed text-zinc-600">
+                    {results.data.catalogueError}
+                    <span className="mt-0.5 block">Searching this archive still works.</span>
+                  </p>
+                )}
+              </>
+            )}
+          </div>
+
+          {error && (
+            <p className="border-t border-white/5 px-4 py-2 text-xs text-red-400">{error}</p>
           )}
         </div>
-
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
-          {!searching ? (
-            <p className="px-3 py-8 text-center text-sm leading-relaxed text-zinc-500">
-              Type at least two letters.
-              <span className="mt-1 block text-xs text-zinc-600">
-                Anything in this archive comes up first, then everything else.
-              </span>
-            </p>
-          ) : nothing ? (
-            <p className="px-3 py-8 text-center text-sm text-zinc-500">
-              Nothing found for “{debounced}”.
-            </p>
-          ) : (
-            <>
-              {archive.length > 0 && (
-                <Group icon={<Library size={11} />} title="In your archive">
-                  {archive.map((candidate) => (
-                    <Row
-                      key={`a-${candidate.id}`}
-                      candidate={candidate}
-                      taken={isTaken(candidate)}
-                      pending={add.isPending && add.variables?.id === candidate.id}
-                      onAdd={() => add.mutate(candidate)}
-                    />
-                  ))}
-                </Group>
-              )}
-
-              {catalogue.length > 0 && (
-                <Group
-                  icon={<Globe size={11} />}
-                  title="Everywhere else"
-                  hint="· can't be played here"
-                >
-                  {catalogue.map((candidate) => (
-                    <Row
-                      key={`c-${candidate.id}`}
-                      candidate={candidate}
-                      taken={isTaken(candidate)}
-                      pending={add.isPending && add.variables?.id === candidate.id}
-                      onAdd={() => add.mutate(candidate)}
-                    />
-                  ))}
-                </Group>
-              )}
-
-              {results.data?.catalogueError && (
-                <p className="px-3 py-3 text-center text-xs leading-relaxed text-zinc-600">
-                  {results.data.catalogueError}
-                  <span className="mt-0.5 block">Searching this archive still works.</span>
-                </p>
-              )}
-            </>
-          )}
-        </div>
-
-        {error && (
-          <p className="border-t border-white/5 px-4 py-2 text-xs text-red-400">{error}</p>
-        )}
       </div>
-    </div>
+    </Portal>
   );
 }
