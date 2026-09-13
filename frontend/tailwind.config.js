@@ -3,6 +3,14 @@ export default {
   content: ['./index.html', './src/**/*.{ts,tsx}'],
   theme: {
     extend: {
+      /**
+       * Height, not width — for the now-playing screen, where a phone turned
+       * on its side leaves barely 300px between the header and the transport
+       * and something has to give for the artwork to stay visible.
+       */
+      screens: {
+        short: { raw: '(max-height: 700px)' },
+      },
       colors: {
         // Near-black vault palette. `ink` is the page, `panel` the cards.
         ink: {

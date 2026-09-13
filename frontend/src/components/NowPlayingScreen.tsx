@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { ChevronDown, Disc3, ListMusic, Maximize2, MicVocal, Minimize2 } from 'lucide-react';
@@ -79,6 +79,33 @@ function useFullscreen(target: React.RefObject<HTMLElement>, wanted: boolean, op
   return { active, enter, exit };
 }
 
+/**
+ * A ref, and the live height of whatever it is attached to.
+ *
+ * The artwork has to be capped against the room actually left under the
+ * controls, and that height genuinely moves: the quality pills vanish in
+ * lyrics mode, the actions row changes with listen-along and with radio, and
+ * the safe-area inset differs per device. Measuring beats picking a number
+ * that is wrong on three devices out of four — the same reasoning, and the
+ * same ResizeObserver, as `--chrome-bottom` in `Layout.tsx`.
+ */
+function useMeasuredHeight() {
+  const ref = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState(0);
+
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const measure = () => setHeight(element.offsetHeight);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  return { ref, height };
+}
+
 export function NowPlayingScreen({
   view,
   onChangeView,
@@ -115,6 +142,8 @@ export function NowPlayingScreen({
   }, [open, onClose]);
 
   const lyrics = view === 'lyrics';
+  const controls = useMeasuredHeight();
+  const header = useMeasuredHeight();
 
   return (
     <div
@@ -124,6 +153,10 @@ export function NowPlayingScreen({
       className={`fixed inset-0 z-50 flex flex-col overflow-hidden bg-ink-950 transition-transform duration-300 ease-vault ${
         open ? 'translate-y-0' : 'pointer-events-none translate-y-full'
       }`}
+      style={{
+        ['--np-controls' as string]: controls.height ? `${controls.height}px` : undefined,
+        ['--np-header' as string]: header.height ? `${header.height}px` : undefined,
+      }}
     >
       {/* ----------------------- the colour wash ----------------------- */}
       <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
@@ -149,17 +182,40 @@ export function NowPlayingScreen({
         <div className="absolute inset-0 bg-gradient-to-b from-ink-950/60 via-ink-950/10 to-ink-950/80" />
       </div>
 
-      {/* ------------------------- the header -------------------------- */}
-      <div className="relative flex items-center justify-between gap-2 px-4 pb-2 pt-[max(0.75rem,env(safe-area-inset-top))]">
-        <button type="button" onClick={onClose} aria-label="Close now playing" className="icon-btn">
+      {/*
+        ------------------------- the header --------------------------
+
+        Three columns rather than a `justify-between` row. The right-hand
+        cluster holds two or three buttons depending on the breakpoint and on
+        whether radio is playing, so spacing the row out put the label
+        wherever the gap between the sides happened to fall — visibly left of
+        centre. Equal side tracks put the middle on the centre line whatever
+        the sides weigh.
+
+        `minmax(0,1fr)` rather than a bare `1fr`, because `1fr` keeps a
+        content-sized minimum: at 320px the buttons are wider than their share
+        and the track grows for them, which is exactly the imbalance this is
+        here to remove. Zeroing the minimum keeps the two sides identical and
+        lets the label truncate instead.
+      */}
+      <div
+        ref={header.ref}
+        className="relative grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 px-4 pb-2 pt-[max(0.75rem,env(safe-area-inset-top))]"
+      >
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close now playing"
+          className="icon-btn justify-self-start"
+        >
           <ChevronDown size={22} />
         </button>
 
-        <span className="truncate text-[11px] font-semibold uppercase tracking-[0.2em] text-zinc-400">
+        <span className="min-w-0 truncate text-center text-[11px] font-semibold uppercase tracking-[0.2em] text-zinc-400">
           {lyrics ? 'Lyrics' : 'Now playing'}
         </span>
 
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 justify-self-end">
           {!live && (
             <button
               type="button"
@@ -194,8 +250,20 @@ export function NowPlayingScreen({
           <LyricsView track={track} active={open && lyrics} />
         ) : (
           <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-2">
+            {/*
+              Capped against the height that is genuinely left, not against a
+              share of the viewport. `52vh` took no account of the ~370px of
+              header and controls above and below it, so anything shorter than
+              about 750px — a short desktop window, and every phone turned on
+              its side — was drawing a square taller than the box holding it
+              and letting the screen's `overflow-hidden` slice it.
+
+              Both ends are measured rather than allowed for, because on a
+              rotated phone the difference between an exact figure and a safe
+              one is the difference between a recognisable cover and a dot.
+            */}
             {artwork(
-              'aspect-square w-full max-w-[min(70vw,52vh)] rounded-3xl shadow-lift',
+              'short:rounded-xl aspect-square w-full max-w-[min(70vw,calc(100dvh-var(--np-controls,20rem)-var(--np-header,4rem)-1rem))] rounded-3xl shadow-lift',
               96,
             )}
           </div>
@@ -203,9 +271,12 @@ export function NowPlayingScreen({
 
         {/* The transport sits under both views: pausing should not cost you
             your place in the lyrics. */}
-        <div className="shrink-0 space-y-5 px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-4">
+        <div
+          ref={controls.ref}
+          className="short:space-y-3 short:pt-2 shrink-0 space-y-5 px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-4"
+        >
           <div className="mx-auto max-w-xl space-y-1.5 text-center">
-            <h2 className="truncate text-xl font-bold text-white">{track.title}</h2>
+            <h2 className="short:text-base truncate text-xl font-bold text-white">{track.title}</h2>
             {live ? (
               <p className="truncate text-sm text-zinc-400">{track.album}</p>
             ) : (
@@ -217,8 +288,10 @@ export function NowPlayingScreen({
                 {track.artist}
               </Link>
             )}
+            {/* The pills are reference, not control, so they are what gives
+                way when a rotated phone needs the room for the cover. */}
             {!lyrics && (
-              <div className="flex items-center justify-center gap-2 pt-1">
+              <div className="short:hidden flex items-center justify-center gap-2 pt-1">
                 <span className="pill">{live ? (track.codec ?? 'Live') : qualityLabel(track)}</span>
                 {!live && track.year && <span className="pill">{track.year}</span>}
               </div>

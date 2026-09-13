@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Loader2, MicVocal } from 'lucide-react';
 
@@ -77,22 +77,63 @@ export function LyricsView({ track, active }: { track: Track; active: boolean })
   const activeLine = useRef<HTMLParagraphElement>(null);
 
   /**
-   * Keeps the current line in the middle of the panel.
+   * Puts the current line in the middle of the panel.
    *
-   * Layout effect rather than effect: the line is measured and scrolled in the
-   * same frame it lights up, so seeking lands on the right line instead of
-   * visibly crawling towards it. `scrollTop` is set directly rather than with
-   * scrollIntoView, which would also scroll the page behind the overlay.
+   * `scrollTop` directly rather than `scrollIntoView`, which would also scroll
+   * the page sitting behind the overlay.
    */
-  useLayoutEffect(() => {
+  const centre = useCallback((behavior: ScrollBehavior) => {
     const box = scroller.current;
     const line = activeLine.current;
     if (!box || !line) return;
     box.scrollTo({
       top: line.offsetTop - box.clientHeight / 2 + line.clientHeight / 2,
-      behavior: 'smooth',
+      behavior,
     });
-  }, [index]);
+  }, []);
+
+  // Layout effect rather than effect: the line is measured and scrolled in the
+  // same frame it lights up, so seeking lands on the right line instead of
+  // visibly crawling towards it.
+  useLayoutEffect(() => centre('smooth'), [index, centre]);
+
+  /**
+   * Re-centre whenever the panel changes size.
+   *
+   * A scroll offset is only correct for the height it was worked out against.
+   * Turn a phone on its side mid-song and every line reflows, so the offset
+   * that had the current line in the middle now points somewhere else entirely
+   * — and nothing corrects it until the next line fires, which on a slow verse
+   * is a long time to stare at the wrong words. Instantly, not smoothly: a
+   * rotation should not come with an animation chasing it.
+   *
+   * `synced.length` is in the deps because the panel does not exist during the
+   * first render — the query is still in flight and this component returns a
+   * spinner — so an effect that only ran on mount would find a null ref and
+   * never look again.
+   */
+  useLayoutEffect(() => {
+    const box = scroller.current;
+    if (!box) return;
+
+    let frame = 0;
+    const observer = new ResizeObserver(() => {
+      centre('auto');
+      // And again once the browser has finished re-wrapping. Fifty balanced
+      // paragraphs do not all settle in the frame the observer fires in, and
+      // measuring half-way through leaves the line short of centre by however
+      // much the text above it grew — which is worst on a narrow screen, where
+      // every line becomes two or three.
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => centre('auto'));
+    });
+    observer.observe(box);
+
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, [centre, synced.length]);
 
   if (query.isLoading) {
     return (
