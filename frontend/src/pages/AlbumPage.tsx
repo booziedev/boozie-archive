@@ -52,6 +52,16 @@ export function AlbumPage() {
   }
   const multiDisc = discs.size > 1;
 
+  /**
+   * The header's icon buttons.
+   *
+   * A touch smaller and tighter on a phone than the 40px default, which is
+   * what gets "Play album" and the five icons onto one line at 390px instead
+   * of wrapping onto two. 36px is still comfortably over the 24px minimum
+   * touch target, and they go back to full size as soon as there is room.
+   */
+  const action = 'icon-btn h-9 w-9 sm:h-10 sm:w-10';
+
   return (
     <div className="space-y-8">
       <Link
@@ -104,38 +114,57 @@ export function AlbumPage() {
             <p className="text-xs text-zinc-600">{album.genres.join(' · ')}</p>
           )}
 
-          <div className="flex flex-wrap items-center gap-2 pt-1">
+          <div className="flex flex-wrap items-center gap-1.5 pt-1 sm:gap-2">
             <button type="button" onClick={() => playTracks(tracks, 0)} className="btn-primary">
               <Play size={16} className="fill-current" />
-              Play album
+              {/* Just "Play" on a narrow phone: the album's name is the heading
+                  directly above, so the word buys nothing there, and dropping
+                  it is what fits the whole row on one line down to 360px. */}
+              {/* One flex child, so the button's own gap does not land between
+                  the two words as well as the space. */}
+              <span>
+                Play<span className="hidden sm:inline"> album</span>
+              </span>
             </button>
+            {/*
+              Everything but "Play album" is icon-only, so the whole row fits
+              on one line on a phone instead of wrapping onto three. Each keeps
+              its name in the tooltip and in `aria-label`, which is where a
+              screen reader was reading it from anyway.
+            */}
             <button
               type="button"
               onClick={() => {
                 if (!shuffle) toggleShuffle();
                 playTracks(tracks, Math.floor(Math.random() * tracks.length));
               }}
-              className="btn-ghost"
+              title="Shuffle"
+              aria-label={`Shuffle ${album.name}`}
+              className={action}
             >
-              <Shuffle size={15} />
-              Shuffle
+              <Shuffle size={17} />
             </button>
-            <button type="button" onClick={() => enqueue(tracks, 'end')} className="btn-ghost">
-              <ListPlus size={15} />
-              Queue
+            <button
+              type="button"
+              onClick={() => enqueue(tracks, 'end')}
+              title="Add to queue"
+              aria-label={`Add ${album.name} to the queue`}
+              className={action}
+            >
+              <ListPlus size={17} />
             </button>
-            {/* The size is on the button rather than behind a confirmation:
-                a lossless album is often over a gigabyte, and finding that out
-                after starting the download is too late. */}
+            {/* The size stays in the tooltip — a lossless album is often over a
+                gigabyte, and finding that out after starting the download is
+                too late. It is also in the line above this row, so dropping it
+                from the button costs nothing. */}
             <a
               href={mediaUrl.downloadAlbum(album.id)}
               download
-              className="btn-ghost"
-              title={`Download all ${tracks.length} tracks as one .zip`}
+              className={action}
+              title={`Download all ${tracks.length} tracks as one .zip · ${formatBytes(totalSize)}`}
+              aria-label={`Download ${album.name}, ${formatBytes(totalSize)}`}
             >
-              <Download size={15} />
-              Download
-              <span className="text-zinc-600">· {formatBytes(totalSize)}</span>
+              <Download size={17} />
             </a>
             {/* Digital booklets shipped with the release — Qobuz's liner notes,
                 for anyone whose rips already carry the PDF. */}
@@ -145,13 +174,23 @@ export function AlbumPage() {
                 href={mediaUrl.booklet(album.id, index)}
                 target="_blank"
                 rel="noreferrer"
-                className="btn-ghost"
+                title={album.booklets!.length > 1 ? `Booklet ${index + 1}` : 'Booklet'}
+                aria-label={
+                  album.booklets!.length > 1
+                    ? `Open booklet ${index + 1} for ${album.name}`
+                    : `Open the booklet for ${album.name}`
+                }
+                className={`${action} gap-0.5`}
               >
-                <BookOpen size={15} />
-                {album.booklets!.length > 1 ? `Booklet ${index + 1}` : 'Booklet'}
+                <BookOpen size={17} />
+                {/* Several booklets would otherwise be identical icons, so the
+                    number stays visible where there is more than one. */}
+                {album.booklets!.length > 1 && (
+                  <span className="text-[10px] font-semibold tabular-nums">{index + 1}</span>
+                )}
               </a>
             ))}
-            <FavoriteButton kind="album" id={album.id} label={album.name} />
+            <FavoriteButton kind="album" id={album.id} label={album.name} className={action} size={17} />
             <ShareButton
               attachment={{
                 kind: 'album',
@@ -159,6 +198,9 @@ export function AlbumPage() {
                 name: album.name,
                 subtitle: album.artistName,
               }}
+              className={action}
+              label=""
+              size={17}
             />
           </div>
         </div>

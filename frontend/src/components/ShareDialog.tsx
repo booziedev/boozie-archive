@@ -148,10 +148,13 @@ export function ShareButton({
   attachment,
   className = '',
   label = 'Share',
+  size = 15,
 }: {
   attachment: Attachment;
   className?: string;
   label?: string;
+  /** Icon size — raised where it sits beside other bare icons. */
+  size?: number;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -169,7 +172,7 @@ export function ShareButton({
         // moves to aria-label rather than disappearing.
         aria-label={label ? undefined : 'Share with a friend'}
       >
-        <Share2 size={15} />
+        <Share2 size={size} />
         {label}
       </button>
       {open && <ShareDialog attachment={attachment} onClose={() => setOpen(false)} />}
