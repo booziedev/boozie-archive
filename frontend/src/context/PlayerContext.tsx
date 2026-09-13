@@ -10,16 +10,7 @@ import {
 import type { ReactNode } from 'react';
 
 import { history, mediaUrl } from '../lib/api';
-import {
-  applyEq,
-  applyReplayGain,
-  attachAnalyser,
-  createAudioGraph,
-  fadeDeck,
-  resumeGraph,
-  setDeckLevel,
-  type AudioGraph,
-} from '../lib/audioGraph';
+import { fadeDeck, setDeckLevel } from '../lib/crossfade';
 import {
   DEFAULT_AUDIO_SETTINGS,
   readAudioSettings,
@@ -106,35 +97,6 @@ interface PersistedSession extends Playback {
   repeat: RepeatMode;
 }
 
-/** One audio element, as the diagnostics panel sees it. */
-export interface DeckDiagnostics {
-  index: number;
-  /** True for the deck the transport is currently pointed at. */
-  isActive: boolean;
-  /** 1 is audible, 0 is silent. Null when there is no graph. */
-  fadeGain: number | null;
-  replayGain: number | null;
-  paused: boolean;
-  muted: boolean;
-  volume: number;
-  currentTime: number;
-  duration: number | null;
-  readyState: number;
-  networkState: number;
-  /** MediaError code, where the element has failed. */
-  errorCode: number | null;
-  src: string | null;
-}
-
-export interface PlaybackDiagnostics {
-  /** Null when the graph was never built. */
-  contextState: AudioContextState | null;
-  sampleRate: number | null;
-  graphReady: boolean;
-  activeDeck: number;
-  decks: DeckDiagnostics[];
-}
-
 export interface PlayerContextValue extends Playback {
   current: Track | null;
   /**
@@ -173,25 +135,9 @@ export interface PlayerContextValue extends Playback {
   /** The element's own position, which never lags behind React state. */
   getPosition: () => number;
 
-  /** Per-device playback settings: EQ, levelling, speed. */
+  /** Per-device playback settings: crossfade, gapless, speed. */
   audio: AudioSettings;
   setAudio: (patch: Partial<AudioSettings>) => void;
-  /**
-   * True when the graph is actually in the path. False means the browser
-   * refused it or the setting is off, and the EQ controls have nothing to
-   * drive — the UI says so rather than pretending to work.
-   */
-  audioGraphReady: boolean;
-  /** An analyser tapped off the end of the chain, for level meters. */
-  getAnalyser: () => AnalyserNode | null;
-  /**
-   * Everything that decides whether sound comes out, as plain values.
-   *
-   * For the diagnostics panel in Settings: silent playback on somebody else's
-   * phone is only diagnosable by reading the context state and both decks'
-   * gains together.
-   */
-  getDiagnostics: () => PlaybackDiagnostics;
   /** Stop playback after this many minutes; null cancels. */
   sleepTimerMinutes: number | null;
   setSleepTimer: (minutes: number | null) => void;
@@ -267,8 +213,6 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const lastPositionRef = useRef(0);
   const loggedRef = useRef(false);
 
-  const graphRef = useRef<AudioGraph | null>(null);
-  const [audioGraphReady, setAudioGraphReady] = useState(false);
   const [audio, setAudioState] = useState<AudioSettings>(DEFAULT_AUDIO_SETTINGS);
 
   const [playback, setPlayback] = useState<Playback>(EMPTY_PLAYBACK);
@@ -309,94 +253,14 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   /** The deck that is not currently audible — where the next track waits. */
   const idleDeck = useCallback(() => decksRef.current[1 - activeDeckRef.current]!, []);
 
-  /**
-   * Build the graph once, on the first render that has both the element and
-   * the stored settings.
-   *
-   * Deliberately not conditional on the EQ being switched on: routing an
-   * element through a graph is irreversible, so the choice has to be made once
-   * and stuck to. Turning the EQ off flattens the filters; turning the graph
-   * off entirely takes a reload, which is what the setting says it does.
-   */
+  /** Load the stored settings once, and silence the deck that is not playing. */
   useEffect(() => {
     if (decksRef.current.length === 0) return;
-
-    const stored = readAudioSettings();
-    setAudioState(stored);
-    if (!stored.enabled) {
-      // No graph: the idle deck is silenced with its own volume instead.
-      decksRef.current.forEach((element, index) => {
-        element.volume = index === 0 ? readVolume() : 0;
-      });
-      return;
-    }
-
-    const graph = createAudioGraph(decksRef.current);
-    graphRef.current = graph;
-    setAudioGraphReady(Boolean(graph));
-    if (!graph) {
-      decksRef.current.forEach((element, index) => {
-        element.volume = index === 0 ? readVolume() : 0;
-      });
-      return;
-    }
-
-    /*
-     * Resume the context on the first real gesture, wherever it lands.
-     *
-     * The context is built here, at mount, with no gesture anywhere near it,
-     * so it starts suspended — and a suspended context means the decks feed a
-     * graph that goes nowhere: the file decodes, the playhead moves, and no
-     * sound comes out. `startElement` already resumes, but it is reached
-     * through an effect when playback starts by tapping a track, and by then
-     * the gesture is off the stack and iOS refuses. Listening on the document
-     * catches the next touch anywhere, which is the one thing guaranteed to
-     * be inside a gesture.
-     */
-    if (graph.context.state === 'running') return;
-
-    const events = ['pointerdown', 'touchend', 'keydown'] as const;
-    const unlock = () => {
-      resumeGraph(graphRef.current);
-      // `resume()` is a promise; only stop listening once it really ran.
-      if (graphRef.current?.context.state === 'running') stop();
-    };
-    const stop = () => {
-      for (const name of events) document.removeEventListener(name, unlock, true);
-    };
-    for (const name of events) document.addEventListener(name, unlock, true);
-    return stop;
+    setAudioState(readAudioSettings());
+    decksRef.current.forEach((element, index) => {
+      element.volume = index === 0 ? readVolume() : 0;
+    });
   }, []);
-
-  /**
-   * Levelling for the track now playing.
-   *
-   * Album mode falls back to the track value when a release wasn't scanned as
-   * an album, which is the common case for anything ripped a track at a time.
-   */
-  useEffect(() => {
-    if (audio.replayGain === 'off' || !current) {
-      applyReplayGain(graphRef.current, activeDeckRef.current, undefined, undefined, 0);
-      return;
-    }
-    const tags = current.replayGain;
-    const gainDb =
-      audio.replayGain === 'album'
-        ? (tags?.albumGainDb ?? tags?.trackGainDb)
-        : tags?.trackGainDb;
-    applyReplayGain(
-      graphRef.current,
-      activeDeckRef.current,
-      gainDb,
-      tags?.trackPeak,
-      audio.replayGainPreampDb,
-    );
-  }, [audio.replayGain, audio.replayGainPreampDb, current]);
-
-  /** Push the curve whenever it changes, and whenever the EQ is toggled. */
-  useEffect(() => {
-    applyEq(graphRef.current, audio.eqOn ? audio.gains : [], audio.eqOn ? audio.preampDb : 0);
-  }, [audio.eqOn, audio.gains, audio.preampDb]);
 
   const setAudio = useCallback((patch: Partial<AudioSettings>) => {
     setAudioState((previous) => {
@@ -404,45 +268,6 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       writeAudioSettings(next);
       return next;
     });
-  }, []);
-
-  const getAnalyser = useCallback(() => attachAnalyser(graphRef.current), []);
-
-  /**
-   * A flat snapshot of everything that decides whether sound comes out.
-   *
-   * Exists because "it plays silently while the progress bar moves" is a real
-   * report that cannot be reproduced on a desktop: the decks and the graph are
-   * private to this file, and on somebody else's phone the only way to tell a
-   * suspended context from a deck whose fade gain is stuck at zero is to read
-   * both. Returns plain values rather than the nodes, so the panel showing
-   * them cannot reach in and change anything.
-   */
-  const getDiagnostics = useCallback((): PlaybackDiagnostics => {
-    const graph = graphRef.current;
-    return {
-      contextState: graph ? graph.context.state : null,
-      sampleRate: graph ? graph.context.sampleRate : null,
-      graphReady: Boolean(graph),
-      activeDeck: activeDeckRef.current,
-      decks: decksRef.current.map((element, index) => ({
-        index,
-        isActive: element === audioRef.current,
-        fadeGain: graph?.decks[index]?.fade.gain.value ?? null,
-        replayGain: graph?.decks[index]?.replayGain.gain.value ?? null,
-        paused: element.paused,
-        muted: element.muted,
-        volume: element.volume,
-        currentTime: element.currentTime,
-        duration: Number.isFinite(element.duration) ? element.duration : null,
-        readyState: element.readyState,
-        networkState: element.networkState,
-        errorCode: element.error?.code ?? null,
-        // Path only: the host is the same one the page is on, and a full URL
-        // is unreadable on a phone screen.
-        src: element.currentSrc ? new URL(element.currentSrc).pathname : null,
-      })),
-    };
   }, []);
 
   // --- sleep timer -------------------------------------------------------
@@ -617,12 +442,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     crossfadingRef.current = false;
 
     const outgoing = idleDeck();
-    const graph = graphRef.current;
     outgoing.pause();
     outgoing.removeAttribute('src');
     outgoing.load();
-    setDeckLevel(graph, 1 - activeDeckRef.current, outgoing, 0, volumeRef.current);
-    setDeckLevel(graph, activeDeckRef.current, audioRef.current!, 1, volumeRef.current);
+    setDeckLevel(outgoing, 0, volumeRef.current);
+    setDeckLevel(audioRef.current!, 1, volumeRef.current);
   }, [idleDeck]);
 
   finishHandoverRef.current = finishHandover;
@@ -646,7 +470,6 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         return false;
       }
 
-      const graph = graphRef.current;
       const settings = audioSettingsRef.current;
       const incomingDeck = 1 - activeDeckRef.current;
 
@@ -654,33 +477,19 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       // moves `current`, and stop its own `ended` from reporting it twice.
       logPlay(currentRef.current, true);
 
-      // Levelling for the incoming track, before a sample of it is audible.
-      const tags = upcoming.track.replayGain;
-      applyReplayGain(
-        graph,
-        incomingDeck,
-        settings.replayGain === 'off'
-          ? undefined
-          : settings.replayGain === 'album'
-            ? (tags?.albumGainDb ?? tags?.trackGainDb)
-            : tags?.trackGainDb,
-        tags?.trackPeak,
-        settings.replayGainPreampDb,
-      );
-
       crossfadingRef.current = true;
       incoming.currentTime = 0;
       incoming.playbackRate = settings.playbackRate;
       incoming.muted = outgoing.muted;
-      if (!graph) incoming.volume = 0;
+      incoming.volume = 0;
       void incoming.play().catch(() => {
         // Refused (no gesture yet, or the format is unplayable here): fall
         // back to the ordinary path rather than leaving both decks silent.
         crossfadingRef.current = false;
       });
 
-      fadeDeck(graph, activeDeckRef.current, outgoing, 0, seconds, volumeRef.current);
-      fadeDeck(graph, incomingDeck, incoming, 1, seconds, volumeRef.current);
+      fadeDeck(outgoing, 0, seconds, volumeRef.current);
+      fadeDeck(incoming, 1, seconds, volumeRef.current);
 
       // The incoming deck is the audible one from here on.
       activeDeckRef.current = incomingDeck;
@@ -704,10 +513,6 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const startElement = useCallback(() => {
     const audio = audioRef.current;
     if (!audio) return;
-    // The context starts suspended and may only be resumed from a user
-    // gesture; this runs inside the click chain that reaches play().
-    resumeGraph(graphRef.current);
-
     /*
      * Unlock the other deck on the same gesture.
      *
@@ -989,11 +794,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     for (const element of decksRef.current) {
       element.muted = muted;
-      // With the graph in place the fade rides a gain node, so both decks sit
-      // at the slider's level. Without one the fade *is* the element volume,
-      // and only the audible deck may carry it.
-      if (graphRef.current) element.volume = volume;
-      else if (!crossfadingRef.current) element.volume = element === audioRef.current ? volume : 0;
+      // The fade *is* the element volume, so only the audible deck may carry
+      // the slider's level — and nothing may touch it mid-crossfade.
+      if (!crossfadingRef.current) element.volume = element === audioRef.current ? volume : 0;
     }
     try {
       localStorage.setItem(VOLUME_KEY, String(volume));
@@ -1276,9 +1079,6 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       getPosition,
       audio,
       setAudio,
-      audioGraphReady,
-      getAnalyser,
-      getDiagnostics,
       sleepTimerMinutes: sleepUntil === null ? null : Math.ceil((sleepUntil - Date.now()) / 60_000),
       setSleepTimer,
       sleepRemainingMs,
@@ -1298,11 +1098,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       cycleRepeat,
       duration,
       audio,
-      audioGraphReady,
       enqueue,
       error,
-      getAnalyser,
-      getDiagnostics,
       getPosition,
       isLoading,
       isPlaying,
