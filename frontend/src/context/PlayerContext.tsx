@@ -106,6 +106,35 @@ interface PersistedSession extends Playback {
   repeat: RepeatMode;
 }
 
+/** One audio element, as the diagnostics panel sees it. */
+export interface DeckDiagnostics {
+  index: number;
+  /** True for the deck the transport is currently pointed at. */
+  isActive: boolean;
+  /** 1 is audible, 0 is silent. Null when there is no graph. */
+  fadeGain: number | null;
+  replayGain: number | null;
+  paused: boolean;
+  muted: boolean;
+  volume: number;
+  currentTime: number;
+  duration: number | null;
+  readyState: number;
+  networkState: number;
+  /** MediaError code, where the element has failed. */
+  errorCode: number | null;
+  src: string | null;
+}
+
+export interface PlaybackDiagnostics {
+  /** Null when the graph was never built. */
+  contextState: AudioContextState | null;
+  sampleRate: number | null;
+  graphReady: boolean;
+  activeDeck: number;
+  decks: DeckDiagnostics[];
+}
+
 export interface PlayerContextValue extends Playback {
   current: Track | null;
   /**
@@ -155,6 +184,14 @@ export interface PlayerContextValue extends Playback {
   audioGraphReady: boolean;
   /** An analyser tapped off the end of the chain, for level meters. */
   getAnalyser: () => AnalyserNode | null;
+  /**
+   * Everything that decides whether sound comes out, as plain values.
+   *
+   * For the diagnostics panel in Settings: silent playback on somebody else's
+   * phone is only diagnosable by reading the context state and both decks'
+   * gains together.
+   */
+  getDiagnostics: () => PlaybackDiagnostics;
   /** Stop playback after this many minutes; null cancels. */
   sleepTimerMinutes: number | null;
   setSleepTimer: (minutes: number | null) => void;
@@ -301,7 +338,34 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       decksRef.current.forEach((element, index) => {
         element.volume = index === 0 ? readVolume() : 0;
       });
+      return;
     }
+
+    /*
+     * Resume the context on the first real gesture, wherever it lands.
+     *
+     * The context is built here, at mount, with no gesture anywhere near it,
+     * so it starts suspended — and a suspended context means the decks feed a
+     * graph that goes nowhere: the file decodes, the playhead moves, and no
+     * sound comes out. `startElement` already resumes, but it is reached
+     * through an effect when playback starts by tapping a track, and by then
+     * the gesture is off the stack and iOS refuses. Listening on the document
+     * catches the next touch anywhere, which is the one thing guaranteed to
+     * be inside a gesture.
+     */
+    if (graph.context.state === 'running') return;
+
+    const events = ['pointerdown', 'touchend', 'keydown'] as const;
+    const unlock = () => {
+      resumeGraph(graphRef.current);
+      // `resume()` is a promise; only stop listening once it really ran.
+      if (graphRef.current?.context.state === 'running') stop();
+    };
+    const stop = () => {
+      for (const name of events) document.removeEventListener(name, unlock, true);
+    };
+    for (const name of events) document.addEventListener(name, unlock, true);
+    return stop;
   }, []);
 
   /**
@@ -343,6 +407,43 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const getAnalyser = useCallback(() => attachAnalyser(graphRef.current), []);
+
+  /**
+   * A flat snapshot of everything that decides whether sound comes out.
+   *
+   * Exists because "it plays silently while the progress bar moves" is a real
+   * report that cannot be reproduced on a desktop: the decks and the graph are
+   * private to this file, and on somebody else's phone the only way to tell a
+   * suspended context from a deck whose fade gain is stuck at zero is to read
+   * both. Returns plain values rather than the nodes, so the panel showing
+   * them cannot reach in and change anything.
+   */
+  const getDiagnostics = useCallback((): PlaybackDiagnostics => {
+    const graph = graphRef.current;
+    return {
+      contextState: graph ? graph.context.state : null,
+      sampleRate: graph ? graph.context.sampleRate : null,
+      graphReady: Boolean(graph),
+      activeDeck: activeDeckRef.current,
+      decks: decksRef.current.map((element, index) => ({
+        index,
+        isActive: element === audioRef.current,
+        fadeGain: graph?.decks[index]?.fade.gain.value ?? null,
+        replayGain: graph?.decks[index]?.replayGain.gain.value ?? null,
+        paused: element.paused,
+        muted: element.muted,
+        volume: element.volume,
+        currentTime: element.currentTime,
+        duration: Number.isFinite(element.duration) ? element.duration : null,
+        readyState: element.readyState,
+        networkState: element.networkState,
+        errorCode: element.error?.code ?? null,
+        // Path only: the host is the same one the page is on, and a full URL
+        // is unreadable on a phone screen.
+        src: element.currentSrc ? new URL(element.currentSrc).pathname : null,
+      })),
+    };
+  }, []);
 
   // --- sleep timer -------------------------------------------------------
 
@@ -829,7 +930,19 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         }
         setIsLoading(false);
         setIsPlaying(false);
-        setError('Playback failed — the file may be missing on the server or unsupported here.');
+        // Naming the failure matters on a phone, where there is no console to
+        // open: "network" and "this browser cannot decode it" call for very
+        // different next steps, and the generic sentence covered both.
+        const code = audio.error?.code;
+        const reason =
+          code === MediaError.MEDIA_ERR_NETWORK
+            ? 'the connection dropped while loading it'
+            : code === MediaError.MEDIA_ERR_DECODE
+              ? 'this browser could not decode it'
+              : code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED
+                ? 'this browser does not support the format, or the file is missing'
+                : 'the file may be missing on the server';
+        setError(`Playback failed — ${reason}.`);
       };
 
       const onEnded = () => {
@@ -1165,6 +1278,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       setAudio,
       audioGraphReady,
       getAnalyser,
+      getDiagnostics,
       sleepTimerMinutes: sleepUntil === null ? null : Math.ceil((sleepUntil - Date.now()) / 60_000),
       setSleepTimer,
       sleepRemainingMs,
@@ -1188,6 +1302,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       enqueue,
       error,
       getAnalyser,
+      getDiagnostics,
       getPosition,
       isLoading,
       isPlaying,

@@ -1,5 +1,6 @@
 import { AudioLines, RotateCcw, SlidersVertical, Waves } from 'lucide-react';
 
+import { PlaybackDiagnostics } from './PlaybackDiagnostics';
 import { EQ_BANDS, EQ_MAX_DB } from '../lib/audioGraph';
 import { EQ_PRESETS, FLAT, type ReplayGainMode } from '../lib/audioSettings';
 import { usePlayer } from '../context/PlayerContext';
@@ -286,6 +287,8 @@ export function AudioSettingsSection() {
           </span>
         </span>
       </label>
+
+      <PlaybackDiagnostics />
     </section>
   );
 }

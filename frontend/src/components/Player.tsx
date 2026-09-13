@@ -320,28 +320,17 @@ export function Player() {
           </div>
 
           {/*
-            Right column: save, lyrics, fullscreen, queue (desktop).
+            Right column: save, sleep, lyrics, fullscreen, queue (desktop).
 
-            Six controls is as many as fit beside a 256px sidebar at exactly
-            1024px, which is where `lg:` starts. Download is the one that gives
-            way below `xl` — it is on every track row and in the now-playing
-            screen, so it is the only thing here that exists twice.
+            Download used to sit here too. Every track row has one and so does
+            the now-playing screen, so the bar was the third copy of a thing
+            nobody reaches for mid-song.
           */}
           <div className="hidden items-center gap-1.5 lg:flex lg:justify-end xl:gap-2">
             {/* The same heart the track rows have: one click offers Liked
                 songs and every playlist, rather than only liking. A station
                 can go in neither. */}
             {!live && <SaveTrackButton trackId={current.id} title={current.title} size={17} />}
-            {!live && (
-              <a
-                href={mediaUrl.download(current.id)}
-                download
-                className="icon-btn hidden xl:inline-flex"
-                aria-label={`Download ${current.title}`}
-              >
-                <Download size={18} />
-              </a>
-            )}
             <SleepTimer />
             {/* Radio has no lyrics to look up, and nothing to look them up by. */}
             {!live && (
