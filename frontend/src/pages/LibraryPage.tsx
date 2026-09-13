@@ -173,7 +173,7 @@ export function LibraryPage() {
     <div className="space-y-6">
       <PageHeader
         title="Library"
-        subtitle="Everything you have saved or made."
+        subtitle="Everything you have saved."
         actions={
           !creating && (
             <button type="button" onClick={() => setCreating(true)} className="btn-primary">

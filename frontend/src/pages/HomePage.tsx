@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { ArrowRight, Disc3, Music2, Sparkles, Users } from 'lucide-react';
+import { ArrowRight, Disc3, Music2, Users } from 'lucide-react';
 
 import { AlbumCard } from '../components/AlbumCard';
 import { ArtistCard } from '../components/ArtistCard';
@@ -7,7 +7,7 @@ import { RecentlyPlayed } from '../components/RecentlyPlayed';
 import { SectionHeader } from '../components/PageHeader';
 import { CardGridSkeleton, ErrorState, ScanningState } from '../components/states';
 import { useAlbums, useArtists, useRecentAlbums, useStats } from '../hooks/useLibrary';
-import { formatBytes, formatNumber, formatRuntime } from '../lib/format';
+import { formatBytes, formatNumber } from '../lib/format';
 import { siteName, siteTagline } from '../lib/config';
 
 /** Landing page: hero + library stats, recently added, and top artists. */
@@ -37,10 +37,6 @@ export function HomePage() {
         />
 
         <div className="relative max-w-3xl">
-          <span className="pill pill-accent">
-            <Sparkles size={12} />
-            Private collection
-          </span>
           <h1 className="mt-4 text-balance text-4xl font-extrabold leading-[1.05] tracking-tight text-white sm:text-6xl">
             {siteName}
           </h1>
@@ -70,16 +66,6 @@ export function HomePage() {
               <Stat label="Tracks" value={formatNumber(stats.data.tracks)} />
               <Stat label="On disk" value={formatBytes(stats.data.size)} />
             </dl>
-          )}
-
-          {stats.data && stats.data.duration > 0 && (
-            <p className="mt-5 text-xs text-zinc-600">
-              {formatRuntime(stats.data.duration)} of music ·{' '}
-              {stats.data.formats
-                .slice(0, 5)
-                .map((format) => `${format.ext.toUpperCase()} ${formatNumber(format.count)}`)
-                .join(' · ')}
-            </p>
           )}
         </div>
       </section>
