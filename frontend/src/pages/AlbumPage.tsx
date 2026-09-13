@@ -56,8 +56,8 @@ export function AlbumPage() {
    * The header's icon buttons.
    *
    * A touch smaller and tighter on a phone than the 40px default, which is
-   * what gets "Play album" and the five icons onto one line at 390px instead
-   * of wrapping onto two. 36px is still comfortably over the 24px minimum
+   * what gets "Play" and the five icons onto one line at 360px instead of
+   * wrapping onto two. 36px is still comfortably over the 24px minimum
    * touch target, and they go back to full size as soon as there is room.
    */
   const action = 'icon-btn h-9 w-9 sm:h-10 sm:w-10';
@@ -117,14 +117,9 @@ export function AlbumPage() {
           <div className="flex flex-wrap items-center gap-1.5 pt-1 sm:gap-2">
             <button type="button" onClick={() => playTracks(tracks, 0)} className="btn-primary">
               <Play size={16} className="fill-current" />
-              {/* Just "Play" on a narrow phone: the album's name is the heading
-                  directly above, so the word buys nothing there, and dropping
-                  it is what fits the whole row on one line down to 360px. */}
-              {/* One flex child, so the button's own gap does not land between
-                  the two words as well as the space. */}
-              <span>
-                Play<span className="hidden sm:inline"> album</span>
-              </span>
+              {/* Just "Play": the album's name is the heading directly above
+                  the button, so the word only takes up room. */}
+              Play
             </button>
             {/*
               Everything but "Play album" is icon-only, so the whole row fits
