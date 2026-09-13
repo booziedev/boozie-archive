@@ -14,6 +14,7 @@ import {
   planEntries,
 } from '../lib/archive.js';
 import { library } from '../lib/library.js';
+import { fetchOnline, isLocalTrack, saveSidecar } from '../lib/lyrics.js';
 import { listEntries, getPlaylist } from '../lib/playlists.js';
 import { normalizeSize, resolveCover } from '../lib/covers.js';
 import { contentDisposition, safeJoin } from '../lib/paths.js';
@@ -307,11 +308,13 @@ export const mediaRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
   });
 
   /**
-   * Lyrics for a track: an .lrc sitting beside the audio if there is one,
-   * otherwise whatever the tags carry.
+   * Lyrics for a track: an .lrc sitting beside the audio if there is one, then
+   * whatever the tags carry, then the online database.
    *
-   * The sidecar wins because it is the one a person put there deliberately,
-   * and it is the only source that can be time-synced.
+   * The sidecar wins because it is the one a person put there deliberately.
+   * Both it and a fetched result can be time-synced; tags essentially never
+   * are, which is why the online lookup runs even when the file has a lyrics
+   * tag that turned out to be a plain block.
    */
   app.get('/lyrics/:id', async (request, reply) => {
     const { id } = request.params as { id: string };
@@ -332,6 +335,26 @@ export const mediaRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
     }
 
     if (track.lyrics) return { source: 'tags', synced: [], text: track.lyrics };
+
+    // Radio streams and scrobbled plays have no file behind them, so there is
+    // nothing to look up against and nowhere to save a result.
+    if (isLocalTrack(id)) {
+      const online = await fetchOnline(track);
+      if (online) {
+        if (online.instrumental) {
+          return { source: 'lrclib', synced: [], text: '', instrumental: true };
+        }
+        const parsed = online.synced ? parseLrc(online.synced) : null;
+        if (online.synced) await saveSidecar(track, online.synced);
+        return {
+          source: 'lrclib',
+          synced: parsed?.lines ?? [],
+          text: online.plain || parsed?.plain || '',
+          instrumental: false,
+        };
+      }
+    }
+
     return reply.code(404).send({ error: 'No lyrics for this track' });
   });
 

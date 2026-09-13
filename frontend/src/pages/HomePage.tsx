@@ -7,7 +7,7 @@ import { RecentlyPlayed } from '../components/RecentlyPlayed';
 import { SectionHeader } from '../components/PageHeader';
 import { CardGridSkeleton, ErrorState, ScanningState } from '../components/states';
 import { useAlbums, useArtists, useRecentAlbums, useStats } from '../hooks/useLibrary';
-import { formatBytes, formatNumber } from '../lib/format';
+import { formatBytes, formatNumber, isLosslessFormat } from '../lib/format';
 import { siteName, siteTagline } from '../lib/config';
 
 /** Landing page: hero + library stats, recently added, and top artists. */
@@ -66,6 +66,14 @@ export function HomePage() {
               <Stat label="Tracks" value={formatNumber(stats.data.tracks)} />
               <Stat label="On disk" value={formatBytes(stats.data.size)} />
             </dl>
+          )}
+
+          {stats.data && stats.data.formats.length > 0 && (
+            <div className="mt-6 flex flex-wrap items-center gap-1.5">
+              {stats.data.formats.map(({ ext, count }) => (
+                <FormatPill key={ext} ext={ext} count={count} />
+              ))}
+            </div>
           )}
         </div>
       </section>
@@ -139,6 +147,32 @@ export function HomePage() {
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * One audio format and how much of it there is.
+ *
+ * Lossless formats take the accent-tinted variant, so the split between what
+ * was ripped properly and what was not reads at a glance — no legend needed,
+ * which is the whole reason to use two pill styles rather than a label.
+ */
+function FormatPill({ ext, count }: { ext: string; count: number }) {
+  const lossless = isLosslessFormat(ext);
+  return (
+    <span
+      className={`pill ${lossless ? 'pill-accent' : ''}`}
+      title={`${formatNumber(count)} ${count === 1 ? 'track' : 'tracks'} · ${lossless ? 'lossless' : 'lossy'}`}
+    >
+      {ext.replace(/^\./, '').toUpperCase()}
+      <span
+        className={`tabular-nums font-semibold normal-case tracking-normal ${
+          lossless ? 'text-accent-100' : 'text-zinc-300'
+        }`}
+      >
+        {formatNumber(count)}
+      </span>
+    </span>
   );
 }
 

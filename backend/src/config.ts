@@ -276,6 +276,31 @@ export const config = {
    * is as fresh as a polled status can sensibly be.
    */
   scrobblePollSeconds: int('SCROBBLE_POLL_SECONDS', 60),
+
+  // --- lyrics --------------------------------------------------------------
+
+  /**
+   * Look lyrics up online when a track has neither a sidecar nor tags.
+   *
+   * LRCLIB is an open, keyless lyrics database whose synced lyrics come back in
+   * plain LRC, so a fetched song scrolls exactly like one somebody ripped a
+   * `.lrc` for by hand. Genius — the obvious other candidate — cannot do this:
+   * its API returns metadata and a link, and the words live only in the page
+   * HTML, which their terms forbid scraping.
+   */
+  lyricsOnlineEnabled: bool('LYRICS_ONLINE_ENABLED', true),
+  /** Overridable so the lookup can be pointed at a stub in testing. */
+  lrclibApiBase: str('LRCLIB_API_BASE', 'https://lrclib.net'),
+  /**
+   * Write fetched lyrics as a real `.lrc` beside the audio file.
+   *
+   * This is the only thing in the app that writes into MUSIC_ROOT, so it gets
+   * its own switch. It never overwrites an existing file and only ever saves
+   * time-synced lyrics — a plain block in a `.lrc` would be a lie about what
+   * the file contains. The payoff is that a track needs the network once, and
+   * the words survive a reinstall because they live with the music.
+   */
+  lyricsSaveSidecar: bool('LYRICS_SAVE_SIDECAR', true),
 } as const;
 
 /**

@@ -106,3 +106,29 @@ export function initials(name: string): string {
   if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
   return `${words[0][0] ?? ''}${words[1]?.[0] ?? ''}`.toUpperCase();
 }
+
+/**
+ * Extensions that keep every bit of the original recording.
+ *
+ * Mirrors `LOSSLESS_EXTENSIONS` in `backend/src/config.ts`. Duplicated rather
+ * than fetched because this is purely a display decision — which pills get
+ * tinted — and an endpoint for four lines of constants would be worse.
+ */
+const LOSSLESS = new Set([
+  'flac',
+  'wav',
+  'wave',
+  'aiff',
+  'aif',
+  'aifc',
+  'alac',
+  'wv',
+  'ape',
+  'dsf',
+  'dff',
+]);
+
+/** Whether a bare extension (no dot) names a lossless format. */
+export function isLosslessFormat(ext: string): boolean {
+  return LOSSLESS.has(ext.replace(/^\./, '').toLowerCase());
+}

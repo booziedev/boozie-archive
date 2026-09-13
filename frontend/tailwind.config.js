@@ -79,6 +79,18 @@ export default {
           '0%,100%': { transform: 'scaleY(0.35)' },
           '50%': { transform: 'scaleY(1)' },
         },
+        /**
+         * The drifting colour blobs behind the now-playing screen.
+         *
+         * Three of them, each given a different delay, so the wash never
+         * repeats in a way you can follow. Deliberately slow — this is
+         * atmosphere, and anything faster reads as a loading state.
+         */
+        drift: {
+          '0%,100%': { transform: 'translate3d(0,0,0) scale(1)' },
+          '33%': { transform: 'translate3d(12%,-8%,0) scale(1.25)' },
+          '66%': { transform: 'translate3d(-9%,10%,0) scale(0.9)' },
+        },
       },
       animation: {
         'fade-up': 'fade-up 0.45s cubic-bezier(0.22,1,0.36,1) both',
@@ -87,6 +99,7 @@ export default {
         shimmer: 'shimmer 1.6s infinite',
         'slide-up': 'slide-up 0.35s cubic-bezier(0.22,1,0.36,1) both',
         equalize: 'equalize 0.9s ease-in-out infinite',
+        drift: 'drift 24s ease-in-out infinite',
       },
       transitionTimingFunction: {
         vault: 'cubic-bezier(0.22, 1, 0.36, 1)',

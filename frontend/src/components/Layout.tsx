@@ -29,7 +29,6 @@ import { Logo } from './Logo';
 import { social } from '../lib/api';
 import { useStats } from '../hooks/useLibrary';
 import { useAuth } from '../context/AuthContext';
-import { formatBytes, formatNumber, formatRuntime } from '../lib/format';
 import { siteName } from '../lib/config';
 
 /** Browsing the collection. Everything here is the archive, not you. */
@@ -313,22 +312,17 @@ export function Layout() {
             Settings
           </NavLink>
 
-          {stats && (
-            <div className="space-y-1 border-t border-white/5 pt-4 text-[11px] leading-relaxed text-zinc-600">
-              <p>
-                <span className="text-zinc-400">{formatNumber(stats.tracks)}</span> tracks ·{' '}
-                <span className="text-zinc-400">{formatNumber(stats.albums)}</span> albums
-              </p>
-              <p>
-                {formatBytes(stats.size)} · {formatRuntime(stats.duration)}
-              </p>
-              {stats.scanning && (
-                <p className="flex items-center gap-1.5 pt-1 text-accent-400">
-                  <Loader2 size={11} className="animate-spin" />
-                  Indexing…
-                </p>
-              )}
-            </div>
+          {/*
+            The collection's size used to be spelled out here. It is on the
+            home page, where somebody actually goes looking for it, so the
+            sidebar keeps only the one thing that is genuinely news: that a
+            scan is running and what you see may still be incomplete.
+          */}
+          {stats?.scanning && (
+            <p className="flex items-center gap-1.5 border-t border-white/5 pt-4 text-[11px] text-accent-400">
+              <Loader2 size={11} className="animate-spin" />
+              Indexing…
+            </p>
           )}
         </div>
       </aside>

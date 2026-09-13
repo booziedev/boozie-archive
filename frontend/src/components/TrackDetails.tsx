@@ -119,13 +119,20 @@ export function TrackDetails({ track, onClose }: { track: Track; onClose: () => 
             </dl>
           </section>
 
-          {lyrics && (
+          {/* An instrumental has no words to print, so it gets no section —
+              a "Lyrics" heading over nothing reads as a failed request. */}
+          {lyrics && lyrics.text && (
             <section className="mt-2 border-t border-white/5 pt-2">
               <h3 className="flex items-center gap-2 pb-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-accent-300">
                 Lyrics
-                {lyrics.source === 'lrc' && lyrics.synced.length > 0 && (
+                {lyrics.synced.length > 0 && (
                   <span className="rounded-full bg-white/5 px-1.5 py-0.5 text-[9px] tracking-normal text-zinc-500">
                     timed
+                  </span>
+                )}
+                {lyrics.source === 'lrclib' && (
+                  <span className="rounded-full bg-white/5 px-1.5 py-0.5 text-[9px] tracking-normal text-zinc-500">
+                    LRCLIB
                   </span>
                 )}
               </h3>

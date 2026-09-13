@@ -70,9 +70,12 @@ export interface LyricLine {
 }
 
 export interface Lyrics {
-  source: 'lrc' | 'tags';
+  /** Where the words came from: a sidecar, the file's tags, or LRCLIB. */
+  source: 'lrc' | 'tags' | 'lrclib';
   synced: LyricLine[];
   text: string;
+  /** The database says this recording has no words. Only ever from 'lrclib'. */
+  instrumental?: boolean;
 }
 
 export interface Album {

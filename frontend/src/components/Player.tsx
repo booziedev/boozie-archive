@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
 import {
-  ChevronDown,
   Download,
   ListMusic,
+  Maximize2,
+  MicVocal,
   Loader2,
   Pause,
   Play,
@@ -21,12 +21,14 @@ import {
 import { CoverImage } from './CoverImage';
 import { FavoriteButton } from './FavoriteButton';
 import { ListenAlongPeers } from './ListenAlongPeers';
+import { NowPlayingScreen } from './NowPlayingScreen';
+import type { NowPlayingView } from './NowPlayingScreen';
 import { SleepTimer } from './SleepTimer';
 import { QueuePanel } from './QueuePanel';
 import { SeekBar } from './SeekBar';
 import { isRadio } from '../lib/radio';
 import { mediaUrl } from '../lib/api';
-import { formatDuration, qualityLabel } from '../lib/format';
+import { formatDuration } from '../lib/format';
 import { usePlayer } from '../context/PlayerContext';
 import { usePresence } from '../context/PresenceContext';
 
@@ -41,7 +43,21 @@ export function Player() {
   const player = usePlayer();
   const { isFollowing } = usePresence();
   const [queueOpen, setQueueOpen] = useState(false);
-  const [expanded, setExpanded] = useState(false);
+  /**
+   * Which now-playing view is open, and whether it should take over the
+   * screen properly.
+   *
+   * Two states rather than one because the bar has two ways in: tapping the
+   * track (or the maximise button) wants the artwork, the lyrics button wants
+   * the words, and both land on the same screen.
+   */
+  const [view, setView] = useState<NowPlayingView | null>(null);
+  const [wantFullscreen, setWantFullscreen] = useState(false);
+
+  const open = (next: NowPlayingView, fullscreen = false) => {
+    setWantFullscreen(fullscreen);
+    setView(next);
+  };
 
   const {
     current,
@@ -193,62 +209,22 @@ export function Player() {
 
   return (
     <>
-      {/* ---------------- expanded now-playing sheet (mobile) ------------- */}
-      <div
-        aria-hidden={!expanded}
-        className={`fixed inset-0 z-50 flex flex-col bg-ink-950/95 backdrop-blur-2xl transition-transform duration-300 ease-vault lg:hidden ${
-          expanded ? 'translate-y-0' : 'pointer-events-none translate-y-full'
-        }`}
-      >
-        <div className="flex items-center justify-between px-4 pb-2 pt-[max(0.75rem,env(safe-area-inset-top))]">
-          <button
-            type="button"
-            onClick={() => setExpanded(false)}
-            aria-label="Close now playing"
-            className="icon-btn"
-          >
-            <ChevronDown size={22} />
-          </button>
-          <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
-            Now playing
-          </span>
-          <button
-            type="button"
-            onClick={() => setQueueOpen(true)}
-            aria-label="Open queue"
-            className="icon-btn"
-          >
-            <ListMusic size={20} />
-          </button>
-        </div>
-
-        <div className="flex min-h-0 flex-1 flex-col justify-center gap-6 px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
-          {artwork('mx-auto aspect-square w-full max-w-sm rounded-3xl shadow-lift', 96)}
-
-          <div className="space-y-1.5 text-center">
-            <h2 className="truncate text-xl font-bold text-white">{current.title}</h2>
-            {live ? (
-              <p className="block truncate text-sm text-zinc-400">{current.album}</p>
-            ) : (
-              <Link
-                to={`/artists/${current.artistId}`}
-                onClick={() => setExpanded(false)}
-                className="block truncate text-sm text-zinc-400 hover:text-zinc-200"
-              >
-                {current.artist}
-              </Link>
-            )}
-            <div className="flex items-center justify-center gap-2 pt-1">
-              <span className="pill">{live ? (current.codec ?? 'Live') : qualityLabel(current)}</span>
-              {!live && current.year && <span className="pill">{current.year}</span>}
-            </div>
-          </div>
-
-          {progress}
-
-          <div className="flex items-center justify-center">{transport('lg')}</div>
-
-          <div className="flex items-center justify-center gap-2">
+      <NowPlayingScreen
+        view={view}
+        onChangeView={setView}
+        onClose={() => {
+          setView(null);
+          setWantFullscreen(false);
+        }}
+        wantFullscreen={wantFullscreen}
+        track={current}
+        live={live}
+        onOpenQueue={() => setQueueOpen(true)}
+        artwork={artwork}
+        transport={transport('lg')}
+        progress={progress}
+        actions={
+          <>
             <ListenAlongPeers />
             <SleepTimer />
             {!live && (
@@ -264,9 +240,9 @@ export function Player() {
                 </a>
               </>
             )}
-          </div>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {/* ---------------- persistent bar ---------------------------------- */}
       {/*
@@ -289,12 +265,13 @@ export function Player() {
           />
         </div>
 
-        <div className="mx-auto flex max-w-[1800px] items-center gap-3 px-3 py-2.5 sm:px-4 lg:gap-6 lg:pb-[max(0.625rem,env(safe-area-inset-bottom))]">
+        <div className="mx-auto flex max-w-[1800px] items-center gap-3 px-3 py-2.5 sm:px-4 lg:gap-3 lg:pb-[max(0.625rem,env(safe-area-inset-bottom))]">
           {/* Track identity */}
           <button
             type="button"
-            onClick={() => setExpanded(true)}
-            className="flex min-w-0 flex-1 items-center gap-3 text-left lg:w-72 lg:flex-none lg:cursor-default"
+            onClick={() => open('art')}
+            aria-label="Open now playing"
+            className="flex min-w-0 flex-1 items-center gap-3 text-left lg:w-64 lg:flex-none"
           >
             {artwork('h-12 w-12 shrink-0 rounded-lg shadow-card', 20)}
             <span className="min-w-0 flex-1">
@@ -318,8 +295,15 @@ export function Player() {
             <div className="hidden w-full max-w-2xl lg:block">{progress}</div>
           </div>
 
-          {/* Right column: volume, download, queue (desktop) */}
-          <div className="hidden items-center gap-2 lg:flex lg:w-72 lg:justify-end">
+          {/*
+            Right column: volume, lyrics, fullscreen, queue (desktop).
+
+            Six controls is as many as fit beside a 256px sidebar at exactly
+            1024px, which is where `lg:` starts. Download is the one that gives
+            way below `xl` — it is on every track row and in the now-playing
+            screen, so it is the only thing here that exists twice.
+          */}
+          <div className="hidden items-center gap-1.5 lg:flex lg:justify-end xl:gap-2">
             <button
               type="button"
               onClick={player.toggleMute}
@@ -341,19 +325,40 @@ export function Player() {
               onInput={player.setVolume}
               onCommit={player.setVolume}
               ariaLabel="Volume"
-              className="w-24"
+              className="!w-20 xl:!w-24"
             />
             {!live && (
               <a
                 href={mediaUrl.download(current.id)}
                 download
-                className="icon-btn"
+                className="icon-btn hidden xl:inline-flex"
                 aria-label={`Download ${current.title}`}
               >
                 <Download size={18} />
               </a>
             )}
             <SleepTimer />
+            {/* Radio has no lyrics to look up, and nothing to look them up by. */}
+            {!live && (
+              <button
+                type="button"
+                onClick={() => open('lyrics')}
+                aria-label="Lyrics"
+                title="Lyrics"
+                className={`icon-btn ${view === 'lyrics' ? 'text-accent-400' : ''}`}
+              >
+                <MicVocal size={19} />
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => open('art', true)}
+              aria-label="Fullscreen"
+              title="Fullscreen"
+              className="icon-btn"
+            >
+              <Maximize2 size={18} />
+            </button>
             <button
               type="button"
               onClick={() => setQueueOpen(true)}
