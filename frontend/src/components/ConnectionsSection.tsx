@@ -3,7 +3,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CheckCircle2, Link2, Link2Off, Loader2 } from 'lucide-react';
 
 import { scrobbles } from '../lib/api';
-import type { ServiceLabel } from '../lib/types';
 
 /** "4 minutes ago", or "just now" for anything inside a minute. */
 function ago(iso: string | null): string {
@@ -21,34 +20,28 @@ function ago(iso: string | null): string {
 /**
  * Connecting a Last.fm account, so listening done elsewhere shows up here.
  *
- * Last.fm is the bridge rather than the destination: Spotify, Apple Music,
- * Tidal and most desktop players can all scrobble to it, so one connection
- * covers whichever of them somebody actually uses.
- *
- * The service picker is honest about what it is. Last.fm records *that* a track
- * was played, never which app played it, so the name shown in a status is the
- * one chosen here and the copy below says so rather than implying detection.
+ * Last.fm is the bridge rather than the destination — Spotify scrobbles to it,
+ * and this reads it back. There used to be a picker for the name a status is
+ * shown under, which was never anything but a guess: Last.fm records *that* a
+ * track was played and never which app played it. It is fixed to Spotify now.
  */
 export function ConnectionsSection() {
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const [username, setUsername] = useState('');
-  const [label, setLabel] = useState<ServiceLabel>('Spotify');
 
   const query = useQuery({ queryKey: ['scrobbles', 'connection'], queryFn: scrobbles.connection });
   const connection = query.data?.connection ?? null;
-  const labels = query.data?.labels ?? [];
 
   // Seed the form from the connection once it arrives, so editing an existing
   // one starts from what is there rather than an empty box.
   useEffect(() => {
     if (!connection) return;
     setUsername((current) => current || connection.username);
-    setLabel(connection.label);
   }, [connection]);
 
   const save = useMutation({
-    mutationFn: () => scrobbles.connect({ username: username.trim(), label }),
+    mutationFn: () => scrobbles.connect({ username: username.trim() }),
     onMutate: () => setError(null),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['scrobbles'] });
@@ -84,11 +77,8 @@ export function ConnectionsSection() {
       </div>
 
       <p className="text-xs leading-relaxed text-zinc-500">
-        Connect a Last.fm account and whatever you play on Spotify, Apple Music, Tidal or a desktop
-        player shows up here too — in your status while it is on, and under Elsewhere in Your
-        Listening afterwards. Those plays are kept apart from the archive's own: they never count
-        towards your top tracks and never land in a generated playlist, because there is no file
-        here to play.
+        Connect a Last.fm account and what you play on Spotify shows up in your status and under
+        Elsewhere. Those plays stay out of the archive's own stats.
       </p>
 
       {connection && (
@@ -114,44 +104,21 @@ export function ConnectionsSection() {
         </p>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,11rem)]">
-        <label className="block">
-          <span className="mb-1.5 block text-xs font-medium text-zinc-400">Last.fm username</span>
-          <input
-            type="text"
-            value={username}
-            maxLength={15}
-            autoCapitalize="none"
-            autoCorrect="off"
-            spellCheck={false}
-            onChange={(event) => setUsername(event.target.value)}
-            placeholder="yourname"
-            disabled={busy}
-            className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-accent-500/50 focus:outline-none disabled:opacity-60"
-          />
-        </label>
-
-        <label className="block">
-          <span className="mb-1.5 block text-xs font-medium text-zinc-400">Shown as</span>
-          <select
-            value={label}
-            disabled={busy}
-            onChange={(event) => setLabel(event.target.value as ServiceLabel)}
-            className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-zinc-100 focus:border-accent-500/50 focus:outline-none disabled:opacity-60"
-          >
-            {(labels.length ? labels : (['Last.fm'] as ServiceLabel[])).map((option) => (
-              <option key={option} value={option} className="bg-zinc-900">
-                {option}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-
-      <p className="text-xs leading-relaxed text-zinc-600">
-        Last.fm records that you played something, never which app you played it in — so the name
-        above is the one your status will use because you picked it, not because we detected it.
-      </p>
+      <label className="block">
+        <span className="mb-1.5 block text-xs font-medium text-zinc-400">Last.fm username</span>
+        <input
+          type="text"
+          value={username}
+          maxLength={15}
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+          onChange={(event) => setUsername(event.target.value)}
+          placeholder="yourname"
+          disabled={busy}
+          className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-accent-500/50 focus:outline-none disabled:opacity-60"
+        />
+      </label>
 
       <div className="flex flex-wrap items-center gap-2">
         <button

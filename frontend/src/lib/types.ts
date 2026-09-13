@@ -549,15 +549,11 @@ export interface TimedOutUser {
 
 // ------------------------------------------------- listening somewhere else
 
-/** Services somebody can say they listen on. Purely a label they picked. */
-export type ServiceLabel =
-  | 'Spotify'
-  | 'Apple Music'
-  | 'Tidal'
-  | 'YouTube Music'
-  | 'Deezer'
-  | 'SoundCloud'
-  | 'Last.fm';
+/**
+ * The name outside listening is shown under. Fixed, not chosen: Last.fm never
+ * says which app a play came from, so a chooser was only ever a guess.
+ */
+export type ServiceLabel = 'Spotify';
 
 export interface ScrobbleConnection {
   provider: 'lastfm';

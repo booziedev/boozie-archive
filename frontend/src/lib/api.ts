@@ -52,7 +52,6 @@ import type {
   Showcase,
   SlotCount,
   ScrobbleConnection,
-  ServiceLabel,
 } from './types';
 
 /** Thrown for any non-2xx response so the UI can show a real message. */
@@ -466,8 +465,8 @@ export const showcase = {
  */
 export const scrobbles = {
   connection: () =>
-    request<{ connection: ScrobbleConnection | null; labels: ServiceLabel[] }>('/api/scrobbles/me'),
-  connect: (input: { username: string; label: ServiceLabel }) =>
+    request<{ connection: ScrobbleConnection | null }>('/api/scrobbles/me'),
+  connect: (input: { username: string }) =>
     jsonRequest<{ connection: ScrobbleConnection }>('/api/scrobbles/me', 'PUT', input),
   disconnect: () => jsonRequest<{ ok: true }>('/api/scrobbles/me', 'DELETE'),
   recent: (limit = 30) =>

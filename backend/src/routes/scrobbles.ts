@@ -9,7 +9,6 @@ import {
   getConnection,
   recentExternal,
   topExternal,
-  SERVICE_LABELS,
 } from '../lib/scrobbles.js';
 
 /**
@@ -21,10 +20,8 @@ import {
  * `/api/presence/live` and obeys the same visibility setting as everything else.
  */
 export const scrobbleRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
-  /** The connection, plus the labels the picker offers. */
   app.get('/scrobbles/me', async (request) => ({
     connection: await getConnection(request.user!.id),
-    labels: SERVICE_LABELS,
   }));
 
   app.put('/scrobbles/me', async (request) => ({
