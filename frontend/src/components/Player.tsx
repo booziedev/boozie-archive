@@ -20,6 +20,7 @@ import {
 
 import { CoverImage } from './CoverImage';
 import { FavoriteButton } from './FavoriteButton';
+import { SaveTrackButton } from './SaveTrackButton';
 import { ListenAlongPeers } from './ListenAlongPeers';
 import { NowPlayingScreen } from './NowPlayingScreen';
 import type { NowPlayingView } from './NowPlayingScreen';
@@ -285,25 +286,8 @@ export function Player() {
           {/* Who is listening along, if anyone — names on hover. */}
           <ListenAlongPeers />
 
-          <div className="hidden lg:block">
-            {!live && <FavoriteButton kind="track" id={current.id} label={current.title} size={17} />}
-          </div>
-
-          {/* Centre column: transport + seek (desktop) */}
-          <div className="flex flex-col items-center gap-1.5 lg:flex-1">
-            {transport('sm')}
-            <div className="hidden w-full max-w-2xl lg:block">{progress}</div>
-          </div>
-
-          {/*
-            Right column: volume, lyrics, fullscreen, queue (desktop).
-
-            Six controls is as many as fit beside a 256px sidebar at exactly
-            1024px, which is where `lg:` starts. Download is the one that gives
-            way below `xl` — it is on every track row and in the now-playing
-            screen, so it is the only thing here that exists twice.
-          */}
-          <div className="hidden items-center gap-1.5 lg:flex lg:justify-end xl:gap-2">
+          {/* Volume, beside the track rather than out on the right edge. */}
+          <div className="hidden items-center gap-1.5 lg:flex">
             <button
               type="button"
               onClick={player.toggleMute}
@@ -327,6 +311,27 @@ export function Player() {
               ariaLabel="Volume"
               className="!w-20 xl:!w-24"
             />
+          </div>
+
+          {/* Centre column: transport + seek (desktop) */}
+          <div className="flex flex-col items-center gap-1.5 lg:flex-1">
+            {transport('sm')}
+            <div className="hidden w-full max-w-2xl lg:block">{progress}</div>
+          </div>
+
+          {/*
+            Right column: save, lyrics, fullscreen, queue (desktop).
+
+            Six controls is as many as fit beside a 256px sidebar at exactly
+            1024px, which is where `lg:` starts. Download is the one that gives
+            way below `xl` — it is on every track row and in the now-playing
+            screen, so it is the only thing here that exists twice.
+          */}
+          <div className="hidden items-center gap-1.5 lg:flex lg:justify-end xl:gap-2">
+            {/* The same heart the track rows have: one click offers Liked
+                songs and every playlist, rather than only liking. A station
+                can go in neither. */}
+            {!live && <SaveTrackButton trackId={current.id} title={current.title} size={17} />}
             {!live && (
               <a
                 href={mediaUrl.download(current.id)}

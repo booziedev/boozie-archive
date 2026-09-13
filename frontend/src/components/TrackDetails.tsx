@@ -110,17 +110,12 @@ export function TrackDetails({ track, onClose }: { track: Track; onClose: () => 
                 {track.movement && <Row label="Movement" value={track.movement} />}
                 <Row label="Length" value={formatDuration(track.duration)} />
                 <Row label="Size" value={formatBytes(track.size)} />
-                {track.isrc && <Row label="ISRC" value={<span className="font-mono">{track.isrc}</span>} />}
                 {track.replayGain?.trackGainDb !== undefined && (
                   <Row
                     label="ReplayGain"
                     value={`${track.replayGain.trackGainDb > 0 ? '+' : ''}${track.replayGain.trackGainDb.toFixed(2)} dB`}
                   />
                 )}
-                <Row
-                  label="Path"
-                  value={<span className="break-all font-mono text-xs text-zinc-500">{track.path}</span>}
-                />
               </dl>
             </section>
 
