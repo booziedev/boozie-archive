@@ -206,6 +206,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const crossfadeTimerRef = useRef<number | null>(null);
   /** Both elements are unlocked together, once, inside the first gesture. */
   const unlockedRef = useRef(false);
+  /** Cancels a start that is waiting on `canplay`, if one is armed. */
+  const pendingStartRef = useRef<(() => void) | null>(null);
+  /** Bumped when a handover finishes, to re-arm the idle deck's prefetch. */
+  const [handoverNonce, setHandoverNonce] = useState(0);
   const restored = useRef(false);
   /** Set when playback should start as soon as the new src is ready. */
   const autoplayRef = useRef(false);
@@ -462,8 +466,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     outgoing.pause();
     outgoing.removeAttribute('src');
     outgoing.load();
+    // It is the idle deck now, but it was loaded eagerly as the incoming one.
+    outgoing.preload = 'metadata';
     setDeckLevel(outgoing, 0, volumeRef.current);
     setDeckLevel(audioRef.current!, 1, volumeRef.current);
+    // Tell the prefetch effect to fill this deck with whatever is next.
+    setHandoverNonce((n) => n + 1);
   }, [idleDeck]);
 
   finishHandoverRef.current = finishHandover;
@@ -494,15 +502,37 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       // moves `current`, and stop its own `ended` from reporting it twice.
       logPlay(currentRef.current, true);
 
+      const outgoingDeck = activeDeckRef.current;
+
       crossfadingRef.current = true;
       incoming.currentTime = 0;
       incoming.playbackRate = settings.playbackRate;
       incoming.muted = outgoing.muted;
       incoming.volume = 0;
       void incoming.play().catch(() => {
-        // Refused (no gesture yet, or the format is unplayable here): fall
-        // back to the ordinary path rather than leaving both decks silent.
+        /*
+         * Refused (no gesture yet, or it is not ready here): put everything
+         * back and let the ordinary path take over.
+         *
+         * The rollback is the point. The swap below happens synchronously,
+         * before this rejection can arrive, so clearing the flag alone left
+         * `audioRef` pointing at the deck that had just refused to play — and
+         * `finishHandover` then returned early on that same cleared flag, so
+         * nothing ever tidied up. The player was stranded on a dead deck with
+         * the live one still holding the previous track.
+         */
+        if (!crossfadingRef.current) return;
         crossfadingRef.current = false;
+
+        if (crossfadeTimerRef.current !== null) {
+          window.clearTimeout(crossfadeTimerRef.current);
+          crossfadeTimerRef.current = null;
+        }
+
+        activeDeckRef.current = outgoingDeck;
+        audioRef.current = outgoing;
+        setDeckLevel(incoming, 0, volumeRef.current);
+        setDeckLevel(outgoing, 1, volumeRef.current);
       });
 
       fadeDeck(outgoing, 0, seconds, volumeRef.current);
@@ -525,6 +555,63 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       return true;
     },
     [finishHandover, idleDeck, logPlay],
+  );
+
+  /**
+   * Starts a deck once it actually has something to play.
+   *
+   * Used only after `play()` lost the race with the resource selection
+   * algorithm. One retry, on the element that lost it: if the second attempt
+   * fails too, or the element reports a real error in the meantime, the
+   * failure is reported properly rather than retried in a loop.
+   *
+   * The pending listener is held in a ref so that changing track cancels it.
+   * Without that, a retry armed for the previous track would fire after the
+   * deck had been re-pointed and start the wrong song.
+   */
+  const cancelPendingStart = useCallback(() => {
+    if (pendingStartRef.current) {
+      pendingStartRef.current();
+      pendingStartRef.current = null;
+    }
+  }, []);
+
+  const waitForCanPlay = useCallback(
+    (audio: HTMLAudioElement) => {
+      cancelPendingStart();
+
+      const onFailed = () => {
+        cleanup();
+        setIsLoading(false);
+        setIsPlaying(false);
+      };
+
+      const onReady = () => {
+        cleanup();
+        if (audioRef.current !== audio || !autoplayRef.current) return;
+        const retry = audio.play();
+        if (retry) {
+          retry.catch((reason: DOMException) => {
+            if (reason?.name === 'AbortError') return;
+            setIsPlaying(false);
+            if (reason?.name === 'NotSupportedError') {
+              setError('This browser cannot play this file format.');
+            }
+          });
+        }
+      };
+
+      function cleanup() {
+        audio.removeEventListener('canplay', onReady);
+        audio.removeEventListener('error', onFailed);
+        pendingStartRef.current = null;
+      }
+
+      audio.addEventListener('canplay', onReady, { once: true });
+      audio.addEventListener('error', onFailed, { once: true });
+      pendingStartRef.current = cleanup;
+    },
+    [cancelPendingStart],
   );
 
   const startElement = useCallback(() => {
@@ -562,17 +649,52 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       }
     }
 
+    /*
+     * This call stays synchronous, and that is not a detail.
+     *
+     * iOS only permits playback when a user gesture is on the stack, and the
+     * manual path reaches here straight from the click handler. Moving this
+     * behind an await or an event listener would break tapping a track on the
+     * phone entirely — a far worse bug than the one below.
+     */
     const promise = audio.play();
     if (promise) {
       promise.catch((reason: DOMException) => {
+        if (reason?.name === 'AbortError') return;
+
+        /*
+         * The element simply was not ready yet.
+         *
+         * `load()` starts the resource selection algorithm, which is
+         * asynchronous — it awaits a stable state before it has chosen a
+         * source. The load effect calls this immediately afterwards, so on a
+         * slow link with a large file the element can still be at
+         * NETWORK_NO_SOURCE when `play()` arrives, and WebKit rejects with
+         * NotSupportedError. That is a race, not an unplayable file, and it is
+         * why auto-advancing through a hi-res album failed on cellular while
+         * tapping the same track by hand worked: a tap carries the gesture
+         * that makes WebKit start fetching at once.
+         *
+         * `audio.error` tells the two apart. A genuine failure sets it; losing
+         * the race leaves it null, and then the right answer is to wait for
+         * the source to arrive and try again rather than to accuse the file.
+         */
+        const premature =
+          !audio.error && (reason?.name === 'NotSupportedError' || reason?.name === 'NotAllowedError');
+
+        if (premature && autoplayRef.current) {
+          waitForCanPlay(audio);
+          return;
+        }
+
         // NotAllowedError = no user gesture yet (autoplay policy): stay paused.
-        if (reason?.name !== 'AbortError') setIsPlaying(false);
+        setIsPlaying(false);
         if (reason?.name === 'NotSupportedError') {
           setError('This browser cannot play this file format.');
         }
       });
     }
-  }, [idleDeck]);
+  }, [idleDeck, waitForCanPlay]);
 
   /** Loads the current track into the audio element whenever it changes. */
   useEffect(() => {
@@ -591,7 +713,16 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     }
 
     const url = mediaUrl.stream(current.id);
-    if (holds(audio, url)) {
+    /*
+     * `holds` compares the src attribute and nothing else, so a deck whose
+     * load failed still "holds" the track it failed on. Taking the shortcut
+     * below in that state meant re-selecting a track called `play()` on a dead
+     * element and failed identically, for ever — which is how one bad load
+     * turned into a whole album that would not play until something else was
+     * loaded to knock the deck out of it. A deck carrying an error has to go
+     * the long way round and reload.
+     */
+    if (holds(audio, url) && !audio.error) {
       setLoadedTrackId(current.id);
       // Re-selecting the same track is a new playthrough, and counts again.
       resetScrobble();
@@ -599,6 +730,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    cancelPendingStart();
     setError(null);
     setIsLoading(true);
     setCurrentTime(resumeTimeRef.current);
@@ -608,7 +740,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setLoadedTrackId(current.id);
     resetScrobble();
     if (autoplayRef.current) startElement();
-  }, [current, resetScrobble, startElement]);
+  }, [cancelPendingStart, current, resetScrobble, startElement]);
 
   // --- transport ---------------------------------------------------------
 
@@ -755,10 +887,17 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
       const onError = () => {
         if (!isActive()) {
-          // The deck holding the next track cannot play it. Give up on the
-          // handover quietly; the ordinary load path will report it properly
-          // when the track's turn comes.
+          /*
+           * The deck holding the next track cannot play it. Give up on the
+           * handover quietly; the ordinary load path will report it properly
+           * when the track's turn comes.
+           *
+           * `load()` matters as much as clearing the attribute: without it the
+           * element keeps the MediaError it just took, and carries it into
+           * whatever is loaded next.
+           */
           audio.removeAttribute('src');
+          audio.load();
           return;
         }
         setIsLoading(false);
@@ -850,6 +989,19 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
    * current track runs out, the next one is decoded and one `play()` away.
    * Nothing is preloaded when both are switched off, so the default costs no
    * extra bandwidth.
+   *
+   * It deliberately waits for the current track to be playing before starting.
+   * It used to run in the same commit as the load effect, which meant every
+   * track change kicked off two multi-tens-of-megabyte fetches microseconds
+   * apart — the track somebody was waiting for, and a speculative one they
+   * might never reach. On a phone on 4G those two compete for the same
+   * connection, and the one that loses is the one being listened to. Whatever
+   * is audible now gets the bandwidth; the speculation waits its turn.
+   *
+   * `handoverNonce` is what re-arms it after a gapless handover. The effect
+   * bails while a handover is in flight, and without a dependency that changes
+   * afterwards the idle deck was never refilled — so gapless could never
+   * succeed twice in a row.
    */
   useEffect(() => {
     if (crossfadingRef.current) return;
@@ -861,16 +1013,29 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       if (idle.getAttribute('src')) {
         idle.removeAttribute('src');
         idle.load();
+        idle.preload = 'metadata';
       }
       return;
     }
 
     const url = mediaUrl.stream(wanted.track.id);
     if (holds(idle, url)) return;
+    if (!isPlaying) return;
+
     idle.preload = 'auto';
     idle.src = url;
     idle.load();
-  }, [audio.gaplessOn, audio.crossfadeSeconds, current, order, position, queue, repeat]);
+  }, [
+    audio.gaplessOn,
+    audio.crossfadeSeconds,
+    current,
+    handoverNonce,
+    isPlaying,
+    order,
+    position,
+    queue,
+    repeat,
+  ]);
 
   const playTracks = useCallback(
     (tracks: Track[], startIndex = 0) => {

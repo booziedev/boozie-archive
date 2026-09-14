@@ -41,6 +41,16 @@ interface NowPlayingScreenProps {
   transport: ReactNode;
   progress: ReactNode;
   actions: ReactNode;
+  /**
+   * The two buttons that flank the title.
+   *
+   * They live beside the name of the thing they act on rather than in a row of
+   * their own at the bottom. Both slots are always rendered, even when one has
+   * nothing to put in it — a station has nothing to favourite — because an
+   * empty slot still has to hold its width or the title stops being centred.
+   */
+  titleLeading: ReactNode;
+  titleTrailing: ReactNode;
 }
 
 /**
@@ -118,6 +128,8 @@ export function NowPlayingScreen({
   transport,
   progress,
   actions,
+  titleLeading,
+  titleTrailing,
 }: NowPlayingScreenProps) {
   const open = view !== null;
   const shell = useRef<HTMLDivElement>(null);
@@ -275,32 +287,47 @@ export function NowPlayingScreen({
           ref={controls.ref}
           className="short:space-y-3 short:pt-2 shrink-0 space-y-5 px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-4"
         >
-          <div className="mx-auto max-w-xl space-y-1.5 text-center">
-            <h2 className="short:text-base truncate text-xl font-bold text-white">{track.title}</h2>
-            {live ? (
-              <p className="truncate text-sm text-zinc-400">{track.album}</p>
-            ) : (
-              <Link
-                to={`/artists/${track.artistId}`}
-                onClick={onClose}
-                className="block truncate text-sm text-zinc-400 transition-colors hover:text-zinc-200"
-              >
-                {track.artist}
-              </Link>
-            )}
-            {/* The pills are reference, not control, so they are what gives
-                way when a rotated phone needs the room for the cover. */}
-            {!lyrics && (
-              <div className="short:hidden flex items-center justify-center gap-2 pt-1">
-                <span className="pill">{live ? (track.codec ?? 'Live') : qualityLabel(track)}</span>
-                {!live && track.year && <span className="pill">{track.year}</span>}
-              </div>
-            )}
+          {/*
+            Three columns rather than a centred flex row: the side cells hold
+            one icon button each and are the same width, so the middle column
+            is centred on the screen and not merely on whatever space the
+            buttons left over. `minmax(0,…)` is what lets the title truncate
+            instead of widening its track and pushing the centre off.
+          */}
+          <div className="mx-auto grid max-w-xl grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3">
+            <span className="flex items-center justify-center">{titleLeading}</span>
+
+            <div className="min-w-0 space-y-1.5 text-center">
+              <h2 className="short:text-base truncate text-xl font-bold text-white">{track.title}</h2>
+              {live ? (
+                <p className="truncate text-sm text-zinc-400">{track.album}</p>
+              ) : (
+                <Link
+                  to={`/artists/${track.artistId}`}
+                  onClick={onClose}
+                  className="block truncate text-sm text-zinc-400 transition-colors hover:text-zinc-200"
+                >
+                  {track.artist}
+                </Link>
+              )}
+              {/* The pills are reference, not control, so they are what gives
+                  way when a rotated phone needs the room for the cover. */}
+              {!lyrics && (
+                <div className="short:hidden flex items-center justify-center gap-2 pt-1">
+                  <span className="pill">{live ? (track.codec ?? 'Live') : qualityLabel(track)}</span>
+                  {!live && track.year && <span className="pill">{track.year}</span>}
+                </div>
+              )}
+            </div>
+
+            <span className="flex items-center justify-center">{titleTrailing}</span>
           </div>
 
           <div className="mx-auto max-w-xl">{progress}</div>
           <div className="flex items-center justify-center">{transport}</div>
-          <div className="flex items-center justify-center gap-2">{actions}</div>
+          {/* Only listen-along lives here now, so the row collapses when there
+              is no session rather than leaving a gap under the transport. */}
+          <div className="flex items-center justify-center gap-2 empty:hidden">{actions}</div>
         </div>
       </div>
     </div>

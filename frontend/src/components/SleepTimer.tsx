@@ -19,7 +19,18 @@ function remaining(ms: number): string {
  * morning is one tap — the point is to fall asleep to it, not to lose your
  * place.
  */
-export function SleepTimer({ className = '' }: { className?: string }) {
+export function SleepTimer({
+  className = '',
+  align = 'right',
+}: {
+  className?: string;
+  /**
+   * Which edge the popover hangs from. It opened leftward from the button's
+   * right edge, which is right while the button sits on the right of a row —
+   * and runs off the screen once it moves to the left of the title.
+   */
+  align?: 'left' | 'right';
+}) {
   const { sleepRemainingMs, setSleepTimer } = usePlayer();
   const [open, setOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -56,7 +67,9 @@ export function SleepTimer({ className = '' }: { className?: string }) {
       </button>
 
       {open && (
-        <div className="absolute bottom-full right-0 z-50 mb-2 w-44 rounded-xl border border-white/10 bg-ink-850 p-2 shadow-lift">
+        <div
+          className={`absolute bottom-full z-50 mb-2 w-44 rounded-xl border border-white/10 bg-ink-850 p-2 shadow-lift ${align === 'left' ? 'left-0' : 'right-0'}`}
+        >
           <p className="px-1.5 pb-1.5 text-[10px] font-bold uppercase tracking-wider text-zinc-500">
             {running ? `Stopping in ${remaining(sleepRemainingMs)}` : 'Stop playing after'}
           </p>

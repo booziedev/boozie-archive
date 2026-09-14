@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import {
-  Download,
   ListMusic,
   Maximize2,
   MicVocal,
@@ -29,7 +28,6 @@ import { SleepTimer } from './SleepTimer';
 import { QueuePanel } from './QueuePanel';
 import { SeekBar } from './SeekBar';
 import { isRadio } from '../lib/radio';
-import { mediaUrl } from '../lib/api';
 import { formatDuration } from '../lib/format';
 import { usePlayer } from '../context/PlayerContext';
 import { usePresence } from '../context/PresenceContext';
@@ -227,24 +225,16 @@ export function Player() {
         artwork={artwork}
         transport={transport('lg')}
         progress={progress}
-        actions={
-          <>
-            <ListenAlongPeers />
-            <SleepTimer />
-            {!live && (
-              <>
-                <FavoriteButton kind="track" id={current.id} label={current.title} />
-                <a
-                  href={mediaUrl.download(current.id)}
-                  download
-                  className="icon-btn"
-                  aria-label={`Download ${current.title}`}
-                >
-                  <Download size={19} />
-                </a>
-              </>
-            )}
-          </>
+        actions={<ListenAlongPeers />}
+        titleLeading={<SleepTimer align="left" />}
+        titleTrailing={
+          // A station cannot be favourited, but the slot still has to hold its
+          // width, or the title would sit off-centre on radio.
+          live ? (
+            <span className="h-10 w-10" aria-hidden />
+          ) : (
+            <FavoriteButton kind="track" id={current.id} label={current.title} />
+          )
         }
       />
 
