@@ -325,9 +325,19 @@ export function NowPlayingScreen({
 
           <div className="mx-auto max-w-xl">{progress}</div>
           <div className="flex items-center justify-center">{transport}</div>
-          {/* Only listen-along lives here now, so the row collapses when there
-              is no session rather than leaving a gap under the transport. */}
-          <div className="flex items-center justify-center gap-2 empty:hidden">{actions}</div>
+          {/*
+            Only listen-along lives here now, but the row keeps the height it
+            had when the sleep timer and the heart were in it.
+
+            Collapsing it instead moved everything: the artwork wrapper above is
+            `flex-1 items-center`, so the freed row and its `space-y` step were
+            absorbed as surplus and split evenly above and below the cover. The
+            cover could not grow into it — in portrait its cap is the `70vw`
+            term — so the whole screen simply slid down by half of it while the
+            controls slid down by all of it. Reserving the height keeps every
+            other element exactly where it was; the strip is just empty now.
+          */}
+          <div className="flex min-h-10 items-center justify-center gap-2">{actions}</div>
         </div>
       </div>
     </div>
