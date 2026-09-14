@@ -20,7 +20,7 @@ import {
 import { mediaCrossOrigin } from '../lib/config';
 import { isRadio } from '../lib/radio';
 import { useAuth } from './AuthContext';
-import type { Track } from '../lib/types';
+import type { PlaybackHold, Track } from '../lib/types';
 
 /**
  * Audio playback.
@@ -117,6 +117,16 @@ export interface PlayerContextValue extends Playback {
   shuffle: boolean;
   repeat: RepeatMode;
   error: string | null;
+  /** Bumped on every seek. Presence watches it to report a scrub immediately. */
+  seekNonce: number;
+  /**
+   * The admin hold on this account, or null.
+   *
+   * While it is set the transport is disabled and the server refuses audio, so
+   * the two agree rather than the player looking broken.
+   */
+  hold: PlaybackHold | null;
+  setHold: (hold: PlaybackHold | null) => void;
 
   playTracks: (tracks: Track[], startIndex?: number) => void;
   playNow: (track: Track) => void;
@@ -226,6 +236,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [shuffle, setShuffle] = useState(false);
   const [repeat, setRepeat] = useState<RepeatMode>('off');
   const [error, setError] = useState<string | null>(null);
+  /** Bumped on every seek, so presence can report a scrub at once. */
+  const [seekNonce, setSeekNonce] = useState(0);
+  /** Set while an admin is holding this account's playback. */
+  const [hold, setHold] = useState<PlaybackHold | null>(null);
+  // Read inside callbacks that must not be rebuilt whenever a hold changes.
+  const holdRef = useRef<PlaybackHold | null>(null);
+  holdRef.current = hold;
 
   const { queue, order, position } = playback;
 
@@ -514,6 +531,17 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     const audio = audioRef.current;
     if (!audio) return;
     /*
+     * Held accounts do not start.
+     *
+     * The server refuses the audio anyway, so without this the play button
+     * would appear to work and then produce silence and a load error — the
+     * player and the server have to tell the same story.
+     */
+    if (holdRef.current) {
+      setIsPlaying(false);
+      return;
+    }
+    /*
      * Unlock the other deck on the same gesture.
      *
      * iOS only lets an element play if a user gesture started it at least
@@ -738,6 +766,16 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         // Naming the failure matters on a phone, where there is no console to
         // open: "network" and "this browser cannot decode it" call for very
         // different next steps, and the generic sentence covered both.
+        /*
+         * A hold is checked first because the server answers 403 for it, and
+         * an element cannot tell a refusal from a missing file — left to the
+         * codes below it reads as "the file may be missing on the server",
+         * which sends someone hunting a problem with the archive.
+         */
+        if (holdRef.current) {
+          setError(holdRef.current.reason || 'An admin has paused your playback.');
+          return;
+        }
         const code = audio.error?.code;
         const reason =
           code === MediaError.MEDIA_ERR_NETWORK
@@ -906,6 +944,16 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     // Assigning currentTime triggers a fresh HTTP range request server-side.
     audio.currentTime = target;
     setCurrentTime(target);
+    /*
+     * Bumping this is what makes a scrub reportable.
+     *
+     * The presence heartbeat fires immediately on a track change or a
+     * play/pause because both are state anyone can watch. A seek changed
+     * neither, so it was invisible to everyone else until the next twenty
+     * second beat — and worse than merely stale, since scrubbing backwards
+     * left them showing a position ahead of the real one.
+     */
+    setSeekNonce((n) => n + 1);
   }, []);
 
   const getPosition = useCallback(() => audioRef.current?.currentTime ?? 0, []);
@@ -1067,6 +1115,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       shuffle,
       repeat,
       error,
+      seekNonce,
+      hold,
+      setHold,
       playTracks,
       playNow,
       playAt,
@@ -1118,6 +1169,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       removeAt,
       repeat,
       seek,
+      seekNonce,
+      hold,
       setAudio,
       setSleepTimer,
       setVolume,

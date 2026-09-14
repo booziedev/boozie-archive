@@ -356,6 +356,19 @@ export interface PartyListener {
   avatarUrl: string | null;
 }
 
+/**
+ * An admin holding this account's playback.
+ *
+ * A window with an end rather than a one-off nudge, which is the difference
+ * that makes it worth obeying: the player stays paused until `until` passes,
+ * and the server refuses audio for the same stretch, so ignoring it locally
+ * would only produce silence and a confusing error.
+ */
+export interface PlaybackHold {
+  until: string;
+  reason: string | null;
+}
+
 export interface PartyState {
   id: string;
   hostId: string;
@@ -535,7 +548,9 @@ export interface LiveListener {
    */
   source: string;
   updatedAt: string;
-  forcePauseAt: string | null;
+  /** When the hold on this account runs out, if one is in force. */
+  holdUntil: string | null;
+  holdReason: string | null;
   timeoutUntil: string | null;
 }
 

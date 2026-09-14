@@ -5,6 +5,7 @@ import {
   Maximize2,
   MicVocal,
   Loader2,
+  Lock,
   Pause,
   Play,
   Radio as RadioIcon,
@@ -135,8 +136,10 @@ export function Player() {
       <button
         type="button"
         onClick={player.toggle}
+        disabled={Boolean(player.hold)}
         aria-label={isPlaying ? 'Pause' : 'Play'}
-        className={`flex items-center justify-center rounded-full bg-white text-ink-950 shadow-lg transition-transform duration-200 ease-vault hover:scale-105 active:scale-95 ${
+        title={player.hold ? player.hold.reason || 'An admin has paused your playback' : undefined}
+        className={`flex items-center justify-center rounded-full bg-white text-ink-950 shadow-lg transition-transform duration-200 ease-vault hover:scale-105 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100 ${
           size === 'lg' ? 'h-16 w-16' : 'h-10 w-10'
         }`}
       >
@@ -252,8 +255,15 @@ export function Player() {
         reserve exactly that much space.
       */}
       <div className="border-t border-white/5 bg-ink-900/80 backdrop-blur-2xl animate-slide-up">
-        {error && (
-          <p className="bg-red-500/15 px-4 py-1.5 text-center text-xs text-red-300">{error}</p>
+        {player.hold ? (
+          <p className="flex items-center justify-center gap-1.5 bg-rose-500/15 px-4 py-1.5 text-center text-xs text-rose-200">
+            <Lock size={12} className="shrink-0" />
+            {player.hold.reason || 'An admin has paused your playback.'}
+          </p>
+        ) : (
+          error && (
+            <p className="bg-red-500/15 px-4 py-1.5 text-center text-xs text-red-300">{error}</p>
+          )
         )}
 
         {/* Thin progress line, mobile only (the sheet has the real slider). */}

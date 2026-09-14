@@ -22,6 +22,7 @@ import type {
   NowPlaying,
   Page,
   PartyState,
+  PlaybackHold,
   PendingProfile,
   PlayRecord,
   Playlist,
@@ -232,10 +233,37 @@ export const admin = {
 
   users: () => request<{ users: AdminAccountUser[] }>('/api/admin/users'),
 
-  /** Who is playing what right now, and who is currently timed out. */
-  live: () => request<{ listeners: LiveListener[]; timedOut: TimedOutUser[] }>('/api/admin/live'),
-  pauseUser: (id: string) =>
-    jsonRequest<{ ok: true }>(`/api/admin/users/${encodeURIComponent(id)}/pause`, 'POST'),
+  /**
+   * Who is playing what right now, and who is currently timed out.
+   *
+   * `serverTime` is the Pi's clock when the rows were read. The panel derives
+   * a live position from it rather than trusting the browser's, which would
+   * offset every bar by however far the two machines disagree.
+   */
+  live: () =>
+    request<{ listeners: LiveListener[]; serverTime: string; timedOut: TimedOutUser[] }>(
+      '/api/admin/live',
+    ),
+  /** Holds their playback for a while — enforced at the stream route too. */
+  holdUser: (id: string, minutes: number, reason?: string) =>
+    jsonRequest<{ holdUntil: string; holdReason: string | null }>(
+      `/api/admin/users/${encodeURIComponent(id)}/hold`,
+      'POST',
+      { minutes, reason },
+    ),
+  releaseUser: (id: string) =>
+    jsonRequest<{ ok: true }>(`/api/admin/users/${encodeURIComponent(id)}/hold`, 'DELETE'),
+  commandUser: (id: string, command: 'skip' | 'stop') =>
+    jsonRequest<{ ok: true }>(`/api/admin/users/${encodeURIComponent(id)}/command`, 'POST', {
+      command,
+    }),
+  noticeUser: (id: string, text: string) =>
+    jsonRequest<{ ok: true }>(`/api/admin/users/${encodeURIComponent(id)}/notice`, 'POST', { text }),
+  signOutUser: (id: string) =>
+    jsonRequest<{ ok: true; sessions: number }>(
+      `/api/admin/users/${encodeURIComponent(id)}/signout`,
+      'POST',
+    ),
   timeoutUser: (id: string, minutes: number) =>
     jsonRequest<{ timeoutUntil: string }>(
       `/api/admin/users/${encodeURIComponent(id)}/timeout`,
@@ -342,8 +370,13 @@ export const presence = {
     request<{
       statuses: Record<string, NowPlaying>;
       party: PartyState | null;
-      /** Set when an admin has asked this player to stop. */
-      forcePauseAt: string | null;
+      /** Set while an admin is holding this player, with its end time. */
+      hold: PlaybackHold | null;
+      /** A one-shot instruction, with the stamp the client dedupes on. */
+      command: 'skip' | 'stop' | null;
+      commandAt: string | null;
+      notice: string | null;
+      noticeAt: string | null;
     }>('/api/presence/live'),
 
   privacy: () => request<PrivacySettings>('/api/presence/privacy'),

@@ -15,9 +15,13 @@ import {
 } from '../lib/suggestions.js';
 import {
   clearTimeout as clearUserTimeout,
-  forcePause,
+  command as sendCommand,
+  hold as holdPlayback,
   liveListeners,
+  notice as sendNotice,
+  releaseHold,
   setTimeout as setUserTimeout,
+  signOutEverywhere,
   timedOutUsers,
 } from '../lib/moderation.js';
 import { getSettings, setAnnouncement, setMaintenance } from '../lib/settings.js';
@@ -162,14 +166,58 @@ export const adminRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
    * the server they are on.
    */
   app.get('/admin/live', async () => {
-    const [listeners, timedOut] = await Promise.all([liveListeners(), timedOutUsers()]);
-    return { listeners, timedOut };
+    const [live, timedOut] = await Promise.all([liveListeners(), timedOutUsers()]);
+    return { listeners: live.listeners, serverTime: live.serverTime, timedOut };
   });
 
-  /** Asks their player to stop. Picked up on their next presence poll. */
-  app.post('/admin/users/:id/pause', async (request) => {
+  /**
+   * Holds their playback for a while.
+   *
+   * Picked up on their next presence poll — a second or two — and enforced at
+   * the stream route for as long as it lasts, so it does not depend on the
+   * player choosing to obey.
+   */
+  app.post('/admin/users/:id/hold', async (request, reply) => {
     const { id } = request.params as { id: string };
-    return forcePause(id);
+    const body = (request.body ?? {}) as { minutes?: unknown; reason?: unknown };
+    const minutes = Number(body.minutes);
+    if (!Number.isFinite(minutes) || minutes <= 0) {
+      return reply.code(400).send({ error: 'Expected { minutes: number }' });
+    }
+    const reason = typeof body.reason === 'string' ? body.reason : undefined;
+    const result = await holdPlayback(request.user!.id, id, minutes, reason);
+    request.log.info(`${request.user!.username} held ${id} until ${result.holdUntil}`);
+    return result;
+  });
+
+  app.delete('/admin/users/:id/hold', async (request) => {
+    const { id } = request.params as { id: string };
+    return releaseHold(id);
+  });
+
+  /** Skip the current track, or stop and clear the queue. */
+  app.post('/admin/users/:id/command', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = (request.body ?? {}) as { command?: unknown };
+    if (typeof body.command !== 'string') {
+      return reply.code(400).send({ error: 'Expected { command: string }' });
+    }
+    return sendCommand(id, body.command);
+  });
+
+  /** A short note on one person's screen. */
+  app.post('/admin/users/:id/notice', async (request) => {
+    const { id } = request.params as { id: string };
+    const body = (request.body ?? {}) as { text?: unknown };
+    return sendNotice(id, body.text);
+  });
+
+  /** Revokes their sessions — every device drops to the login screen. */
+  app.post('/admin/users/:id/signout', async (request) => {
+    const { id } = request.params as { id: string };
+    const result = await signOutEverywhere(request.user!.id, id);
+    request.log.info(`${request.user!.username} signed ${id} out of ${result.sessions} session(s)`);
+    return result;
   });
 
   /** Locks the account out for a while. It lifts itself when the time is up. */

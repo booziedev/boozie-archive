@@ -6,6 +6,7 @@ import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 
 import { AuthError } from '../lib/auth.js';
 import { deleteImageFile, maxBytesFor, resolveImageFile, storeImage } from '../lib/images.js';
+import { holdFor } from '../lib/moderation.js';
 import {
   createStation,
   deleteStation,
@@ -50,6 +51,18 @@ export const radioRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
    */
   app.get('/radio/:id/stream', async (request, reply) => {
     const { id } = request.params as { id: string };
+
+    // A hold covers audio, not just the library — otherwise it is dodged by
+    // switching to a station. Radio always has an account behind it.
+    const held = await holdFor(request.user!.id);
+    if (held) {
+      return reply.code(403).send({
+        error: held.reason || 'An admin has paused your playback.',
+        code: 'playback_held',
+        until: held.until,
+      });
+    }
+
     const url = await streamUrlFor(id);
 
     // Hang up upstream the moment the listener goes away, or a closed tab

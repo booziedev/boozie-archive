@@ -1,6 +1,16 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Ban, Eye, Loader2, Pause, Radio, Timer } from 'lucide-react';
+import {
+  Ban,
+  Eye,
+  Loader2,
+  Lock,
+  LockOpen,
+  Radio,
+  SkipForward,
+  Square,
+  Timer,
+} from 'lucide-react';
 
 import { Avatar } from './Avatar';
 import { CoverImage } from './CoverImage';
@@ -11,14 +21,31 @@ import { formatDuration } from '../lib/format';
 import { useAuth } from '../context/AuthContext';
 import type { LiveListener } from '../lib/types';
 
-/** Matches the presence poll, so the tab is never further behind than a listener is. */
-const POLL_MS = 3_000;
+/**
+ * How often the rows are refetched.
+ *
+ * This used to be 3s "to match the presence poll", which matched the wrong
+ * end: listeners *read* every 3s but only *report* every 20s, so polling
+ * faster here bought nothing. What actually made the panel live was reporting
+ * on every event and deriving the position between them — see `livePosition`
+ * below. A second is enough to catch an event promptly now that there is one.
+ */
+const POLL_MS = 1_000;
+/** How often the derived position is recomputed. Cheap, and looks continuous. */
+const TICK_MS = 500;
 
 const DURATIONS = [
   { minutes: 5, label: '5m' },
   { minutes: 15, label: '15m' },
   { minutes: 60, label: '1h' },
   { minutes: 60 * 24, label: '1d' },
+];
+
+const HOLDS = [
+  { minutes: 1, label: '1m' },
+  { minutes: 5, label: '5m' },
+  { minutes: 15, label: '15m' },
+  { minutes: 60, label: '1h' },
 ];
 
 /** "in 4 minutes" / "in 2 hours" — what is left of a timeout. */
@@ -29,35 +56,78 @@ function untilLabel(iso: string): string {
   return `${hours}h ${minutes % 60}m left`;
 }
 
+/** Seconds remaining on a hold, which is short enough to count down properly. */
+function holdLabel(iso: string, now: number): string {
+  const seconds = Math.max(0, Math.round((new Date(iso).getTime() - now) / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  return minutes < 60 ? `${minutes}m ${seconds % 60}s` : `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+}
+
 /** How long ago the status was last written, so a stale row is obvious. */
-function ago(iso: string): string {
-  const seconds = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
+function ago(iso: string, now: number): string {
+  const seconds = Math.max(0, Math.round((now - new Date(iso).getTime()) / 1000));
   return seconds < 10 ? 'now' : `${seconds}s ago`;
+}
+
+/**
+ * Where the track has actually got to, rather than where it was last reported.
+ *
+ * A listener reports every twenty seconds, so `position` is a sample up to
+ * that old. Showing it raw made the bar a staircase that was always between 0
+ * and 20 seconds behind and jumped a whole beat at a time — which is what
+ * "the progress doesn't update for 24 seconds" was. Adding the time elapsed
+ * since the sample gives a bar that simply moves.
+ *
+ * `skew` corrects for the two machines' clocks disagreeing: the server's own
+ * time comes back with the rows, so the elapsed term is measured against the
+ * clock that wrote `updatedAt`, not the admin's.
+ *
+ * It assumes a second of playback per second of wall clock, so a listener who
+ * is buffering or playing at a non-1x speed drifts slowly. Every heartbeat
+ * corrects it, and the error is bounded by the beat interval.
+ */
+function livePosition(listener: LiveListener, now: number, skew: number): number {
+  if (!listener.isPlaying) return listener.position;
+  const elapsed = (now - skew - new Date(listener.updatedAt).getTime()) / 1000;
+  const derived = listener.position + Math.max(0, elapsed);
+  return listener.duration ? Math.min(derived, listener.duration) : derived;
 }
 
 function ListenerRow({
   listener,
   isSelf,
-  onPause,
+  now,
+  skew,
+  onHold,
+  onRelease,
+  onCommand,
   onTimeout,
   busy,
 }: {
   listener: LiveListener;
   isSelf: boolean;
-  onPause: () => void;
+  now: number;
+  skew: number;
+  onHold: (minutes: number) => void;
+  onRelease: () => void;
+  onCommand: (command: 'skip' | 'stop') => void;
   onTimeout: (minutes: number) => void;
   busy: boolean;
 }) {
   const [timeoutOpen, setTimeoutOpen] = useState(false);
+  const [holdOpen, setHoldOpen] = useState(false);
   /*
    * Playing on Spotify, Apple Music or wherever, read through their Last.fm
    * account. Worth showing — it is genuinely what they are listening to — but
-   * flagged, because force-pause talks to this site's player and nothing else.
+   * flagged, because these controls talk to this site's player and nothing else.
    */
   const external = listener.source !== 'archive';
+  const held = Boolean(listener.holdUntil && new Date(listener.holdUntil).getTime() > now);
+  const position = livePosition(listener, now, skew);
   const progress =
     listener.duration && listener.duration > 0
-      ? Math.min(100, (listener.position / listener.duration) * 100)
+      ? Math.min(100, (position / listener.duration) * 100)
       : 0;
 
   return (
@@ -65,16 +135,19 @@ function ListenerRow({
       <Avatar profile={{ ...listener, id: listener.userId }} size={36} />
 
       <div className="min-w-0 flex-1">
-        <p className="flex items-center gap-1.5 truncate text-sm text-zinc-100">
+        <p className="flex flex-wrap items-center gap-1.5 truncate text-sm text-zinc-100">
           {listener.displayName || listener.username}
           {listener.role === 'admin' && <span className="pill">admin</span>}
           {external && <span className="pill text-zinc-400">{listener.source}</span>}
+          {held && listener.holdUntil && (
+            <span className="pill text-rose-300">held {holdLabel(listener.holdUntil, now)}</span>
+          )}
           {listener.timeoutUntil && (
             <span className="pill text-amber-300">{untilLabel(listener.timeoutUntil)}</span>
           )}
         </p>
         <p className="truncate text-xs text-zinc-500">
-          @{listener.username} · {ago(listener.updatedAt)}
+          @{listener.username} · {ago(listener.updatedAt, now)}
         </p>
       </div>
 
@@ -113,7 +186,7 @@ function ListenerRow({
                 />
               </span>
               <span className="shrink-0 text-[10px] tabular-nums text-zinc-600">
-                {formatDuration(listener.position)} / {formatDuration(listener.duration)}
+                {formatDuration(position)} / {formatDuration(listener.duration)}
               </span>
             </span>
           ) : null}
@@ -121,21 +194,65 @@ function ListenerRow({
       </div>
 
       <div className="relative flex items-center gap-1">
+        {/*
+          Skip and stop are one-shot instructions; the hold is a state. All
+          three are pointless against somebody playing elsewhere, which the
+          tooltip says rather than leaving a dead button to be discovered.
+        */}
         <button
           type="button"
-          onClick={onPause}
-          disabled={busy || !listener.isPlaying || external}
+          onClick={() => onCommand('skip')}
+          disabled={busy || external || held || !listener.isPlaying}
+          title={
+            external
+              ? `They are listening on ${listener.source} — nothing here can reach that`
+              : 'Skip to their next track'
+          }
+          className="icon-btn h-8 w-8 disabled:opacity-30"
+          aria-label={`Skip ${listener.username}'s track`}
+        >
+          <SkipForward size={14} />
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onCommand('stop')}
+          disabled={busy || external || held || !listener.isPlaying}
+          title={
+            external
+              ? `They are listening on ${listener.source} — nothing here can reach that`
+              : 'Stop them and empty their queue'
+          }
+          className="icon-btn h-8 w-8 disabled:opacity-30"
+          aria-label={`Stop ${listener.username}`}
+        >
+          <Square size={13} />
+        </button>
+
+        <button
+          type="button"
+          onClick={() => (held ? onRelease() : setHoldOpen((value) => !value))}
+          disabled={busy || external || isSelf}
+          aria-expanded={holdOpen}
           title={
             external
               ? `They are listening on ${listener.source} — nothing here can stop that`
-              : listener.isPlaying
-                ? 'Stop their playback'
-                : 'They are not playing'
+              : isSelf
+                ? "You can't hold your own playback"
+                : held
+                  ? 'Lift the hold'
+                  : 'Hold their playback'
           }
-          className="icon-btn h-8 w-8 disabled:opacity-30"
-          aria-label={`Pause ${listener.username}`}
+          className={`icon-btn h-8 w-8 disabled:opacity-30 ${held ? 'text-rose-400' : ''}`}
+          aria-label={held ? `Release ${listener.username}` : `Hold ${listener.username}`}
         >
-          {busy ? <Loader2 size={14} className="animate-spin" /> : <Pause size={14} />}
+          {busy ? (
+            <Loader2 size={14} className="animate-spin" />
+          ) : held ? (
+            <LockOpen size={14} />
+          ) : (
+            <Lock size={14} />
+          )}
         </button>
 
         {!isSelf && (
@@ -143,12 +260,38 @@ function ListenerRow({
             type="button"
             onClick={() => setTimeoutOpen((value) => !value)}
             aria-expanded={timeoutOpen}
-            title="Pause their access for a while"
+            title="Lock them out of the archive for a while"
             aria-label={`Time out ${listener.username}`}
             className={`icon-btn h-8 w-8 ${listener.timeoutUntil ? 'text-amber-400' : ''}`}
           >
             <Timer size={14} />
           </button>
+        )}
+
+        {holdOpen && !held && (
+          <div className="absolute right-0 top-full z-40 mt-1 w-44 rounded-xl border border-white/10 bg-ink-850 p-1.5 shadow-lift">
+            <p className="px-1.5 pb-1.5 text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+              Hold playback for
+            </p>
+            <div className="grid grid-cols-2 gap-1">
+              {HOLDS.map((option) => (
+                <button
+                  key={option.minutes}
+                  type="button"
+                  onClick={() => {
+                    onHold(option.minutes);
+                    setHoldOpen(false);
+                  }}
+                  className="rounded-lg border border-white/10 px-1 py-1.5 text-xs text-zinc-300 transition-colors hover:border-white/20 hover:bg-white/5"
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+            <p className="px-1.5 pt-1.5 text-[10px] leading-relaxed text-zinc-600">
+              They stay paused and the server refuses their audio until it lifts.
+            </p>
+          </div>
         )}
 
         {timeoutOpen && (
@@ -203,26 +346,64 @@ export function AdminLive() {
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<string | null>(null);
+  const [now, setNow] = useState(() => Date.now());
 
   const query = useQuery({
     queryKey: ['admin', 'live'],
     queryFn: admin.live,
     refetchInterval: POLL_MS,
+    // The global default is five minutes, which is right for the library and
+    // wrong for this: without it, coming back to the tab painted rows from
+    // the last time it was open and waited a whole poll to correct them.
+    staleTime: 0,
   });
+
+  /*
+   * Drives the derived position and the countdowns between fetches. This is
+   * what makes the bar move continuously rather than jumping when data lands.
+   */
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), TICK_MS);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  /*
+   * How far this browser's clock is ahead of the Pi's, measured when the rows
+   * arrive. Without it a phone a few seconds out would show every bar offset
+   * by that much, or stuck at zero.
+   */
+  const skewRef = useRef(0);
+  const serverTime = query.data?.serverTime;
+  useEffect(() => {
+    if (serverTime) skewRef.current = Date.now() - new Date(serverTime).getTime();
+  }, [serverTime]);
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['admin', 'live'] });
   const onError = (actionError: unknown) => {
     setError(actionError instanceof Error ? actionError.message : 'That did not work.');
     setPending(null);
   };
+  const onDone = async () => {
+    setError(null);
+    setPending(null);
+    await refresh();
+  };
 
-  const pause = useMutation({
-    mutationFn: (id: string) => admin.pauseUser(id),
-    onSuccess: async () => {
-      setError(null);
-      setPending(null);
-      await refresh();
-    },
+  const hold = useMutation<unknown, Error, { id: string; minutes: number }>({
+    mutationFn: ({ id, minutes }) => admin.holdUser(id, minutes),
+    onSuccess: onDone,
+    onError,
+  });
+
+  const release = useMutation({
+    mutationFn: (id: string) => admin.releaseUser(id),
+    onSuccess: onDone,
+    onError,
+  });
+
+  const command = useMutation<unknown, Error, { id: string; command: 'skip' | 'stop' }>({
+    mutationFn: ({ id, command: instruction }) => admin.commandUser(id, instruction),
+    onSuccess: onDone,
     onError,
   });
 
@@ -277,10 +458,23 @@ export function AdminLive() {
                 key={listener.userId}
                 listener={listener}
                 isSelf={listener.userId === user?.id}
-                busy={pending === listener.userId && pause.isPending}
-                onPause={() => {
+                now={now}
+                skew={skewRef.current}
+                busy={
+                  pending === listener.userId &&
+                  (hold.isPending || release.isPending || command.isPending)
+                }
+                onHold={(minutes) => {
                   setPending(listener.userId);
-                  pause.mutate(listener.userId);
+                  hold.mutate({ id: listener.userId, minutes });
+                }}
+                onRelease={() => {
+                  setPending(listener.userId);
+                  release.mutate(listener.userId);
+                }}
+                onCommand={(instruction) => {
+                  setPending(listener.userId);
+                  command.mutate({ id: listener.userId, command: instruction });
                 }}
                 onTimeout={(minutes) => timeout.mutate({ id: listener.userId, minutes })}
               />

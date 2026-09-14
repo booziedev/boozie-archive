@@ -14,6 +14,7 @@ import {
   planEntries,
 } from '../lib/archive.js';
 import { library } from '../lib/library.js';
+import { holdFor } from '../lib/moderation.js';
 import { fetchOnline, isLocalTrack, saveSidecar } from '../lib/lyrics.js';
 import { listEntries, getPlaylist } from '../lib/playlists.js';
 import { normalizeSize, resolveCover } from '../lib/covers.js';
@@ -198,10 +199,45 @@ export function parseLrc(text: string): { lines: { at: number; text: string }[];
   return { lines, plain: plain.join('\n') };
 }
 
+/**
+ * Refuses audio while an admin is holding this account, or null to carry on.
+ *
+ * A hold has to be enforced here and not only in the player, or it is merely a
+ * polite request: a tab left open on a stale build, or a client someone has
+ * poked at, would keep pulling audio regardless. Refusing the bytes is what
+ * makes it actually stop.
+ *
+ * Signed-out listeners are not held — there is no account to hold — which is
+ * reachable here because streaming follows the library's rules rather than
+ * needing one (see ACCOUNT_ONLY_PREFIXES in index.ts).
+ *
+ * The shape matters as much as the status: the player reads `code` to say the
+ * hold is why, rather than reporting a missing file.
+ */
+async function holdRefusal(
+  request: { user?: { id: string } | null },
+): Promise<{ error: string; code: 'playback_held'; until: string } | null> {
+  const userId = request.user?.id;
+  if (!userId) return null;
+
+  const held = await holdFor(userId);
+  if (!held) return null;
+
+  return {
+    error: held.reason || 'An admin has paused your playback.',
+    code: 'playback_held',
+    until: held.until,
+  };
+}
+
 export const mediaRoutes: FastifyPluginAsync = async (app: FastifyInstance) => {
   /** Inline playback — the URL the <audio> element points at. */
   app.get('/stream/:id', async (request, reply) => {
     const { id } = request.params as { id: string };
+
+    const refusal = await holdRefusal(request);
+    if (refusal) return reply.code(403).send(refusal);
+
     const track = library.getTrack(id);
     if (!track) return reply.code(404).send({ error: 'Track not found' });
 

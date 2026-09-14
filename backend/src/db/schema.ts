@@ -772,4 +772,55 @@ export const migrations: Migration[] = [
         ON favourites (user_id, kind, created_at DESC);
     `,
   },
+  {
+    id: '019_playback_holds',
+    sql: /* sql */ `
+      /*
+       * Admin control over a listener's player, kept on the account.
+       *
+       * These live on users rather than listening_status, which is the whole
+       * point of the change. A listening_status row only exists while somebody
+       * is playing something, so the old force_pause_at could 404 on anyone
+       * between tracks — most likely exactly when an admin reached for it,
+       * since the panel they were looking at was up to twenty seconds stale.
+       * An account always exists, so an admin can always act on a person.
+       *
+       * A hold is a state, not an event. force_pause_at was a single stamp the
+       * client applied once and then forgot, so pressing play again defeated it
+       * permanently and nothing would ever pause them a second time. A hold has
+       * an end: the player stays paused until it passes, and it lifts itself so
+       * nobody has to remember to undo it — the same reasoning as timeout_until
+       * above it. The reason travels with it so the listener is told why rather
+       * than left thinking the archive broke.
+       */
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS playback_hold_until  timestamptz;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS playback_hold_reason text;
+
+      /*
+       * One-shot instructions to a player: skip the track, or stop and clear.
+       *
+       * Unlike a hold these really are events, so they keep the stamp-based
+       * shape force_pause_at used: the client acts on any stamp newer than the
+       * last one it saw, which makes a repeated command idempotent within one
+       * poll and replayable afterwards.
+       */
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS playback_command    text;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS playback_command_at timestamptz;
+
+      /*
+       * A note to one person, as opposed to the site-wide announcement.
+       * Same stamp-and-dedupe shape, so it shows once rather than on every
+       * poll for as long as it is set.
+       */
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS admin_notice    text;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS admin_notice_at timestamptz;
+
+      /*
+       * listening_status.force_pause_at is deliberately left in place. Nothing
+       * writes it any more, but dropping a column is the one migration you
+       * cannot walk back, and it costs nothing to keep until the hold path has
+       * had some real use.
+       */
+    `,
+  },
 ];

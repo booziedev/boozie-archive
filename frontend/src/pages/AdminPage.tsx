@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 
 import { AdminSiteControls } from '../components/AdminSiteControls';
+import { AdminAccountActions } from '../components/AdminAccountActions';
 import { AdminLive } from '../components/AdminLive';
 import { PageHeader, SectionHeader } from '../components/PageHeader';
 import { EmptyState, ErrorState } from '../components/states';
@@ -537,6 +538,12 @@ export function AdminPage() {
                             >
                               {account.disabled ? 'Enable' : 'Disable'}
                             </button>
+                            <AdminAccountActions
+                              userId={account.id}
+                              username={account.username}
+                              isSelf={isSelf}
+                              onDone={() => void refreshUsers()}
+                            />
                             <button
                               type="button"
                               disabled={isSelf}

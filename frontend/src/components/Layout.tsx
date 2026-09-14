@@ -23,6 +23,7 @@ import { SearchBar } from './SearchBar';
 import { useQuery } from '@tanstack/react-query';
 
 import { AccountMenu } from './AccountMenu';
+import { AdminNotice } from './AdminNotice';
 import { AnnouncementBanner } from './AnnouncementBanner';
 import { Avatar } from './Avatar';
 import { Logo } from './Logo';
@@ -347,6 +348,7 @@ export function Layout() {
 
         {/* Bottom padding tracks the measured chrome, with a floor for first paint. */}
         <AnnouncementBanner />
+        <AdminNotice />
 
         {/* Admins keep browsing during maintenance; this is the reminder. */}
         {isAdmin && info?.maintenance?.enabled && (

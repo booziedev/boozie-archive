@@ -1,8 +1,8 @@
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 
+import { holdFor, pendingFor } from '../lib/moderation.js';
 import {
   currentParty,
-  forcePauseAt,
   getParty,
   getPrivacy,
   heartbeat,
@@ -45,14 +45,27 @@ export const presenceRoutes: FastifyPluginAsync = async (app: FastifyInstance) =
    * heartbeat, twenty seconds later.
    */
   app.get('/presence/live', async (request) => {
-    const [statuses, party, forcePause] = await Promise.all([
+    const [statuses, party, hold, pending] = await Promise.all([
       visibleStatuses(request.user!.id),
       currentParty(request.user!.id),
-      forcePauseAt(request.user!.id),
+      holdFor(request.user!.id),
+      pendingFor(request.user!.id),
     ]);
-    // `forcePause` is an admin asking this player to stop; the client compares
-    // it against the last one it acted on.
-    return { statuses, party, forcePauseAt: forcePause };
+    /*
+     * `hold` is an admin stopping this player: a window with an end, which the
+     * client honours for its whole duration rather than acting once. `command`
+     * and `notice` are one-shot, so they carry stamps the client compares
+     * against the last one it acted on.
+     */
+    return {
+      statuses,
+      party,
+      hold,
+      command: pending.command,
+      commandAt: pending.commandAt,
+      notice: pending.notice,
+      noticeAt: pending.noticeAt,
+    };
   });
 
   app.get('/presence/privacy', async (request) => getPrivacy(request.user!.id));

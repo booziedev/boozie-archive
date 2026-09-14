@@ -54,6 +54,9 @@ interface PresenceContextValue {
   /** Set while a guest has paused locally and stopped tracking the host. */
   outOfSync: boolean;
   error: string | null;
+  /** A note an admin pushed to this screen; null once dismissed. */
+  notice: string | null;
+  dismissNotice: () => void;
 
   /** Starts listening along with someone, from their profile. */
   listenAlongWith: (userId: string) => Promise<void>;
@@ -106,13 +109,29 @@ function placeholderTrack(now: NowPlaying): Track {
 export function PresenceProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const player = usePlayer();
-  const { current, loadedTrackId, isPlaying, currentTime, getPosition, playAt, seek, pause, toggle } =
-    player;
+  const {
+    current,
+    loadedTrackId,
+    isPlaying,
+    currentTime,
+    getPosition,
+    playAt,
+    seek,
+    seekNonce,
+    pause,
+    toggle,
+    next,
+    clearQueue,
+    setHold,
+  } = player;
 
   const [party, setParty] = useState<PartyState | null>(null);
   const [statuses, setStatuses] = useState<Record<string, NowPlaying>>({});
-  /** The last force-pause stamp acted on, so one instruction pauses once. */
-  const lastForcePauseRef = useRef<string | null>(null);
+  /** Stamps already acted on, so a one-shot instruction fires exactly once. */
+  const lastCommandRef = useRef<string | null>(null);
+  const lastNoticeRef = useRef<string | null>(null);
+  /** The note an admin pushed to this screen, until it is dismissed. */
+  const [notice, setNotice] = useState<string | null>(null);
   const [outOfSync, setOutOfSync] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -186,12 +205,19 @@ export function PresenceProvider({ children }: { children: ReactNode }) {
     }
   }, [getPosition]);
 
-  // Report immediately whenever the track, or whether it is running, changes —
-  // that is what makes a skip or a pause show up for friends at once.
+  /*
+   * Report immediately whenever the track, whether it is running, or where it
+   * is changes — that is what makes a skip, a pause or a scrub show up for
+   * friends and in the admin panel at once.
+   *
+   * `seekNonce` is the scrub. Without it a seek changed nothing this effect
+   * watches, so it waited for the twenty-second beat: not merely stale, but
+   * wrong in the other direction whenever somebody scrubbed backwards.
+   */
   useEffect(() => {
     if (!user) return;
     void beat();
-  }, [beat, user, loadedTrackId, isPlaying]);
+  }, [beat, user, loadedTrackId, isPlaying, seekNonce]);
 
   useEffect(() => {
     if (!user) return;
@@ -358,16 +384,33 @@ export function PresenceProvider({ children }: { children: ReactNode }) {
         setParty(result.party);
 
         /*
-         * An admin asked this player to stop.
+         * An admin holding this player.
          *
-         * Acted on once per stamp: without the ref every poll for the next two
-         * minutes would re-pause, and pressing play again would be impossible
-         * rather than merely discouraged. It is a request, not a lock — a
-         * timeout is what stops somebody for longer.
+         * Unlike the old one-shot pause this is a window, so it is applied on
+         * every poll for as long as it lasts rather than once: pressing play
+         * again during a hold should not defeat it. The player disables its
+         * own transport off this, and `/api/stream` refuses the account for
+         * the same stretch, so the two cannot disagree.
          */
-        if (result.forcePauseAt && result.forcePauseAt !== lastForcePauseRef.current) {
-          lastForcePauseRef.current = result.forcePauseAt;
-          pause();
+        setHold(result.hold ?? null);
+        if (result.hold) pause();
+
+        /*
+         * One-shot instructions, deduped by stamp — without that, every poll
+         * for as long as the column held a value would skip again.
+         */
+        if (result.commandAt && result.commandAt !== lastCommandRef.current) {
+          lastCommandRef.current = result.commandAt;
+          if (result.command === 'skip') next();
+          if (result.command === 'stop') {
+            pause();
+            clearQueue();
+          }
+        }
+
+        if (result.noticeAt && result.noticeAt !== lastNoticeRef.current) {
+          lastNoticeRef.current = result.noticeAt;
+          setNotice(result.notice ?? null);
         }
 
         // Following, and not deliberately paused: steer the player at the host.
@@ -393,7 +436,7 @@ export function PresenceProvider({ children }: { children: ReactNode }) {
       window.clearInterval(timer);
       document.removeEventListener('visibilitychange', onVisible);
     };
-  }, [applyPartyState, pause, user]);
+  }, [applyPartyState, clearQueue, next, pause, setHold, user]);
 
   /**
    * A guest pausing means "hold on a second", not "leave".
@@ -468,6 +511,8 @@ export function PresenceProvider({ children }: { children: ReactNode }) {
       isHosting,
       outOfSync,
       error,
+      notice,
+      dismissNotice: () => setNotice(null),
       listenAlongWith,
       leaveParty,
       resync,
@@ -479,6 +524,7 @@ export function PresenceProvider({ children }: { children: ReactNode }) {
       isHosting,
       leaveParty,
       listenAlongWith,
+      notice,
       outOfSync,
       party,
       refreshParty,
